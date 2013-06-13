@@ -51,6 +51,8 @@ case "$OS" in
     ;;
   freebsd)
     ;;
+  netbsd)
+    ;;
   sunos)
     OS='solaris'
     ;;
@@ -136,6 +138,11 @@ if [ "$OS" = "freebsd" ]; then
   LIBPULSE="-L/usr/local/lib"
   INCPNG="-I/usr/local/include"
   LIBPNG="-L/usr/local/lib -lpng"
+elif [ "$OS" = "netbsd" ]; then
+  INCCURL="-I/usr/pkg/include"
+  LIBCURL="-L/usr/pkg/lib -lcurl"
+  INCX11="-I/usr/X11R7/include"
+  LIBX11="-L/usr/X11R7/lib -L/usr/X11R7/lib64 -lXext -lX11"
 else
   INCCURL=""
   LIBCURL="-lcurl"

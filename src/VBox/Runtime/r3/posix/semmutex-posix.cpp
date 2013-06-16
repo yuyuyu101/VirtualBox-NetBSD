@@ -241,7 +241,7 @@ DECL_FORCE_INLINE(int) rtSemMutexRequest(RTSEMMUTEX hMutexSem, RTMSINTERVAL cMil
     }
     else
     {
-#ifdef RT_OS_DARWIN
+#if defined(RT_OS_DARWIN) || defined(RT_OS_NETBSD)
         AssertMsgFailed(("Not implemented on Darwin yet because of incomplete pthreads API."));
         return VERR_NOT_IMPLEMENTED;
 #else /* !RT_OS_DARWIN */

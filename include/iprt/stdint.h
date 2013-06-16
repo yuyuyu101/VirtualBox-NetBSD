@@ -34,6 +34,7 @@
  */
 #if !(defined(RT_OS_LINUX) && defined(__KERNEL__))  \
   && !(defined(RT_OS_FREEBSD) && defined(_KERNEL)) \
+  && !(defined(RT_OS_NETBSD) && defined(_KERNEL)) \
   && !defined(_MSC_VER) \
   && !defined(__IBMC__) \
   && !defined(__IBMCPP__) \
@@ -62,7 +63,8 @@
 #  define UINT32_C(Value)   (Value ## U)
 # endif /* 64-bit darwin kludge. */
 
-#elif defined(RT_OS_FREEBSD) && defined(_KERNEL)
+#elif (defined(RT_OS_FREEBSD) && defined(_KERNEL)) \
+  || (defined(RT_OS_NETBSD) && defined(_KERNEL))
 
 # ifndef __STDC_CONSTANT_MACROS
 #  define __STDC_CONSTANT_MACROS

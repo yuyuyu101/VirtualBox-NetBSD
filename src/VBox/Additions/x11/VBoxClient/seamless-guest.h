@@ -43,7 +43,7 @@ public:
     };
 };
 
-#if defined(RT_OS_LINUX) || defined(RT_OS_SOLARIS) || defined(RT_OS_FREEBSD)
+#if defined(RT_OS_LINUX) || defined(RT_OS_SOLARIS) || defined(RT_OS_FREEBSD) || defined(RT_OS_NETBSD)
 # include "seamless-x11.h"  /* for VBoxGuestSeamlessGuestImpl */
 #else
 # error Port me

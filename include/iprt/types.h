@@ -87,6 +87,12 @@ RT_C_DECLS_END
 #  define _INTPTR_T_DECLARED
 #  include <sys/types.h>
 
+# elif defined(RT_OS_NETBSD) && defined(_KERNEL)
+#  include <stddef.h>
+#  include <sys/types.h>
+#  if defined(__cplusplus)
+#   include <stdbool.h>
+#  endif
 # elif defined(RT_OS_LINUX) && defined(__KERNEL__)
     /*
      * Kludge for the linux kernel:
@@ -202,6 +208,10 @@ RT_C_DECLS_END
 typedef uint8_t bool;
 #  elif defined(RT_OS_FREEBSD)
 #   ifndef __bool_true_false_are_defined
+typedef _Bool bool;
+#   endif
+#  elif defined(RT_OS_NETBSD)
+#   if !defined(_KERNEL)
 typedef _Bool bool;
 #   endif
 #  else

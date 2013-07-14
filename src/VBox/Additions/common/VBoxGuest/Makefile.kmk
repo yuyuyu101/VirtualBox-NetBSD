@@ -19,13 +19,14 @@ SUB_DEPTH = ../../../../..
 include $(KBUILD_PATH)/subheader.kmk
 
 
-if1of ($(KBUILD_TARGET), freebsd $(if $(defined VBOX_WITH_ADDITION_DRIVERS),linux,) os2 solaris win)
+if1of ($(KBUILD_TARGET), freebsd netbsd $(if $(defined VBOX_WITH_ADDITION_DRIVERS),linux,) os2 solaris win)
  #
  # VBoxGuest - The Guest Additions Driver.
  #
  SYSMODS += VBoxGuest
  VBoxGuest_TEMPLATE      = VBOXGUESTR0
  VBoxGuest_NAME.freebsd  = vboxguest
+ VBoxGuest_NAME.netbsd  = vboxguest
  VBoxGuest_NAME.linux    = vboxguest
  VBoxGuest_NAME.solaris  = vboxguest
  ifdef VBOX_SIGN_ADDITIONS # See Additions/WINNT/Makefile.kmk?
@@ -49,9 +50,11 @@ if1of ($(KBUILD_TARGET), freebsd $(if $(defined VBOX_WITH_ADDITION_DRIVERS),linu
  VBoxGuest_DEPS.solaris += $(VBOX_SVN_REV_KMK)
  VBoxGuest_DEPS.linux   += $(VBOX_SVN_REV_HEADER)
  VBoxGuest_DEPS.freebsd += $(VBOX_SVN_REV_HEADER)
+ VBoxGuest_DEPS.netbsd  += $(VBOX_SVN_REV_HEADER)
  VBoxGuest_DEFS          = VBGL_VBOXGUEST VBOX_WITH_HGCM
  VBoxGuest_INCS          = .
  VBoxGuest_INCS.freebsd  = $(VBoxGuest_0_OUTDIR) $(PATH_STAGE)/gen-sys-hdrs
+ VBoxGuest_INCS.netbsd   = /usr/src/sys/
  VBoxGuest_INCS.linux    = ../../../Runtime/r0drv/linux
  ifeq ($(KBUILD_HOST),solaris)
   VBoxGuest_LDFLAGS.solaris         += -N misc/ctf
@@ -74,7 +77,7 @@ if1of ($(KBUILD_TARGET), freebsd $(if $(defined VBOX_WITH_ADDITION_DRIVERS),linu
     VBoxGuest.cpp_SDKS   = $(VBOX_WINDDK_GST_WLH)
    endif
   endif # win
-  ifn1of ($(KBUILD_TARGET), linux freebsd solaris)
+  ifn1of ($(KBUILD_TARGET), linux freebsd netbsd solaris)
    VBoxGuest_SOURCES    = VBoxGuest-$(KBUILD_TARGET).cpp
   else
    VBoxGuest_SOURCES    = VBoxGuest-$(KBUILD_TARGET).c
@@ -205,6 +208,19 @@ ifeq ($(KBUILD_TARGET),freebsd)
  vboxguest-src_SOURCES  = $(subst ",,$(FILES_VBOXGUEST_NOBIN))
 
 endif # FreeBSD
+
+ifeq ($(KBUILD_TARGET),netbsd)
+ #
+ # Install the source files and script(s).
+ #
+ include $(PATH_SUB_CURRENT)/netbsd/files_vboxguest
+ # sources and stuff.
+ INSTALLS += vboxguest-src
+ vboxguest-src_INST     = $(INST_ADDITIONS)src/vboxguest/
+ vboxguest-src_MODE     = a+r,u+w
+ vboxguest-src_SOURCES  = $(subst ",,$(FILES_VBOXGUEST_NOBIN))
+
+endif # NetBSD
 
 ifeq ($(KBUILD_TARGET),win)
 #

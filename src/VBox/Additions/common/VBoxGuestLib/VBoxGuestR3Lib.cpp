@@ -37,6 +37,7 @@
 # include <os2.h>
 
 #elif defined(RT_OS_FREEBSD) \
+   || defined(RT_OS_NETBSD) \
    || defined(RT_OS_LINUX) \
    || defined(RT_OS_SOLARIS)
 # include <sys/types.h>
@@ -197,7 +198,7 @@ static int vbglR3Init(const char *pszDeviceName)
 
 #else
 
-    /* The default implementation. (linux, solaris, freebsd) */
+    /* The default implementation. (linux, solaris, freebsd, netbsd) */
     RTFILE File;
     int rc = RTFileOpen(&File, pszDeviceName, RTFILE_O_READWRITE | RTFILE_O_OPEN | RTFILE_O_DENY_NONE);
     if (RT_FAILURE(rc))
@@ -329,7 +330,7 @@ int vbglR3DoIOCtl(unsigned iFunction, void *pvData, size_t cbData)
         return vrc;
     return RTErrConvertFromOS2(rc);
 
-#elif defined(RT_OS_SOLARIS) || defined(RT_OS_FREEBSD)
+#elif defined(RT_OS_SOLARIS) || defined(RT_OS_FREEBSD) | defined(RT_OS_NETBSD)
     VBGLBIGREQ Hdr;
     Hdr.u32Magic = VBGLBIGREQ_MAGIC;
     Hdr.cbData = cbData;

@@ -54,6 +54,11 @@
 #  include <net/if_dl.h> /* LLADDR */
 #  include <netdb.h> /* getnameinfo */
 # endif
+# ifdef RT_OS_NETBSD
+#  include <ifaddrs.h> /* getifaddrs, freeifaddrs */
+#  include <net/if_dl.h> /* LLADDR */
+#  include <netdb.h> /* getnameinfo */
+# endif
 # ifdef VBOX_WITH_DBUS
 #  include <VBox/dbus.h>
 # endif
@@ -901,7 +906,7 @@ static int vboxserviceVMInfoWriteNetwork(void)
     if (sd >= 0)
         closesocket(sd);
 
-#elif defined(RT_OS_FREEBSD)
+#elif defined(RT_OS_FREEBSD) || defined(RT_OS_NETBSD)
     struct ifaddrs *pIfHead = NULL;
 
     /* Get all available interfaces */

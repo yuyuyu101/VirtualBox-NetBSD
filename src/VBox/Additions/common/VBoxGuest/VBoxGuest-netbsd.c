@@ -22,6 +22,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/select.h>
 #include <sys/conf.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
@@ -87,6 +88,9 @@ typedef struct VBoxGuestDeviceState
 
 static MALLOC_DEFINE(M_VBOXDEV, "vboxdev_pci", "VirtualBox Guest driver PCI");
 
+#define VBOXGUEST_STATE_INITOK 1 << 0
+#define VBOXGUEST_STATE_OPEN   1 << 1
+
 /*
  * Character device file handlers.
  */
@@ -97,7 +101,8 @@ static int VBoxGuestNetBSDWrite(dev_t, struct uio *, int);
 static int VBoxGuestNetBSDIOCtl(dev_t device, u_long command, void *data,
 		      int flags, struct lwp *process);
 static int VBoxGuestNetBSDPoll(dev_t, int, struct lwp *);
-static void VBoxGuestNetBSDAttach(int num);
+static void VBoxGuestNetBSDAttach(device_t, device_t, void*);
+static int VBoxGuestNetBSDDetach(device_t pDevice, int flags);
 
 /*
  * IRQ related functions.
@@ -125,76 +130,15 @@ static struct cdevsw g_VBoxGuestNetBSDChrDevSW =
 
 /** Device extention & session data association structure. */
 static VBOXGUESTDEVEXT      g_DevExt;
-/** List of cloned device. Managed by the kernel. */
-static struct clonedevs    *g_pVBoxGuestNetBSDClones;
-/** The dev_clone event handler tag. */
-static eventhandler_tag     g_VBoxGuestNetBSDEHTag;
 /** selinfo structure used for polling. */
 static struct selinfo       g_SelInfo;
 /** Reference counter */
 static volatile uint32_t    cUsers;
 
-struct cfdriver vboxguest_cd = {
-        NULL, "vboxguest", DV_DULL
-};
+extern struct cfdriver vboxguest_cd;
 
-CFATTACH_DECL3_NEW(vboxguest, sizeof(vboxguest_softc),
-    NULL, VBoxGuestNetBSDAttach, VBoxGuestNetBSDDetach, NULL, NULL, NULL,
-    NULL);
-
-/**
- * DEVFS event handler.
- */
-static void VBoxGuestNetBSDClone(void *pvArg, struct ucred *pCred, char *pszName, int cchName, struct cdev **ppDev)
-{
-    int iUnit;
-    int rc;
-
-    Log(("VBoxGuestNetBSDClone: pszName=%s ppDev=%p\n", pszName, ppDev));
-
-    /*
-     * One device node per user, si_drv1 points to the session.
-     * /dev/vboxguest<N> where N = {0...255}.
-     */
-    if (!ppDev)
-        return;
-    if (strcmp(pszName, "vboxguest") == 0)
-        iUnit =  -1;
-    else if (dev_stdclone(pszName, NULL, "vboxguest", &iUnit) != 1)
-        return;
-    if (iUnit >= 256)
-    {
-        Log(("VBoxGuestNetBSDClone: iUnit=%d >= 256 - rejected\n", iUnit));
-        return;
-    }
-
-    Log(("VBoxGuestNetBSDClone: pszName=%s iUnit=%d\n", pszName, iUnit));
-
-    rc = clone_create(&g_pVBoxGuestNetBSDClones, &g_VBoxGuestNetBSDChrDevSW, &iUnit, ppDev, 0);
-    Log(("VBoxGuestNetBSDClone: clone_create -> %d; iUnit=%d\n", rc, iUnit));
-    if (rc)
-    {
-        *ppDev = make_dev(&g_VBoxGuestNetBSDChrDevSW,
-                          iUnit,
-                          UID_ROOT,
-                          GID_WHEEL,
-                          0664,
-                          "vboxguest%d", iUnit);
-        if (*ppDev)
-        {
-            dev_ref(*ppDev);
-            (*ppDev)->si_flags |= SI_CHEAPCLONE;
-            Log(("VBoxGuestNetBSDClone: Created *ppDev=%p iUnit=%d si_drv1=%p si_drv2=%p\n",
-                     *ppDev, iUnit, (*ppDev)->si_drv1, (*ppDev)->si_drv2));
-            (*ppDev)->si_drv1 = (*ppDev)->si_drv2 = NULL;
-        }
-        else
-            Log(("VBoxGuestNetBSDClone: make_dev iUnit=%d failed\n", iUnit));
-    }
-    else
-        Log(("VBoxGuestNetBSDClone: Existing *ppDev=%p iUnit=%d si_drv1=%p si_drv2=%p\n",
-             *ppDev, iUnit, (*ppDev)->si_drv1, (*ppDev)->si_drv2));
-}
+CFATTACH_DECL_NEW(vboxguest, sizeof(vboxguest_softc),
+    NULL, VBoxGuestNetBSDAttach, VBoxGuestNetBSDDetach, NULL);
 
 /**
  * File open handler
@@ -214,8 +158,6 @@ static int VBoxGuestNetBSDOpen(dev_t device, int flags, int fmt, struct lwp *pro
         return (ENXIO);
     if ((vboxguest->vboxguest_state & VBOXGUEST_STATE_OPEN) != 0)
         return (EBUSY);
-    vboxguest->vboxguest_state |= VBOXGUEST_STATE_OPEN;
-
     /*
      * Create a new session.
      */
@@ -263,7 +205,7 @@ static int VBoxGuestNetBSDClose(dev_t device, int flags, int fmt, struct lwp *pr
  * IOCTL handler
  *
  */
-static int VBoxGuestNetBSDIOCtl(dev_t device, u_long command, caddr_t data, int flags, struct lwp *process)
+static int VBoxGuestNetBSDIOCtl(dev_t device, u_long command, void *data, int flags, struct lwp *process)
 {
     LogFlow((DEVICE_NAME ":VBoxGuestNetBSDIOCtl\n"));
 
@@ -381,10 +323,10 @@ static int VBoxGuestNetBSDPoll(dev_t device, int events, struct lwp *lwp)
     return events_processed;
 }
 
-static int VBoxGuestNetBSDDetach(device_t pDevice)
+static int VBoxGuestNetBSDDetach(device_t self, int flags)
 {
     vboxguest_softc *vboxguest;
-    vboxguest = device_lookup_private(&vboxguest_cd, minor(device));
+    vboxguest = device_private(self);
 
     if (cUsers > 0)
         return EBUSY;
@@ -392,17 +334,13 @@ static int VBoxGuestNetBSDDetach(device_t pDevice)
     /*
      * Reverse what we did in VBoxGuestNetBSDAttach.
      */
-    if (g_VBoxGuestNetBSDEHTag != NULL)
-        EVENTHANDLER_DEREGISTER(dev_clone, g_VBoxGuestNetBSDEHTag);
 
-    clone_cleanup(&g_pVBoxGuestNetBSDClones);
-
-    VBoxGuestNetBSDRemoveIRQ(pDevice, vboxguest);
+    VBoxGuestNetBSDRemoveIRQ(self, vboxguest);
 
     if (vboxguest->pVMMDevMemRes)
-        bus_release_resource(pDevice, SYS_RES_MEMORY, vboxguest->iVMMDevMemResId, vboxguest->pVMMDevMemRes);
+        bus_release_resource(self, SYS_RES_MEMORY, vboxguest->iVMMDevMemResId, vboxguest->pVMMDevMemRes);
     if (vboxguest->pIOPortRes)
-        bus_release_resource(pDevice, SYS_RES_IOPORT, vboxguest->iIOPortResId, vboxguest->pIOPortRes);
+        bus_release_resource(self, SYS_RES_IOPORT, vboxguest->iIOPortResId, vboxguest->pIOPortRes);
 
     VBoxGuestDeleteDevExt(&g_DevExt);
 
@@ -481,7 +419,7 @@ static void VBoxGuestNetBSDRemoveIRQ(device_t pDevice, void *pvState)
     }
 }
 
-static int VBoxGuestNetBSDAttach(device_t self, void *aux)
+static int VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
 {
     int rc = VINF_SUCCESS;
     int iResId = 0;
@@ -499,7 +437,7 @@ static int VBoxGuestNetBSDAttach(device_t self, void *aux)
         return ENXIO;
     }
 
-    vboxguest = device_lookup_private(&vboxguest_cd, minor(self));
+    vboxguest = device_private(self);
 
     /*
      * Allocate I/O port resource.
@@ -541,23 +479,11 @@ static int VBoxGuestNetBSDAttach(device_t self, void *aux)
                 rc = VBoxGuestNetBSDAddIRQ(self, vboxguest);
                 if (RT_SUCCESS(rc))
                 {
-                    /*
-                     * Configure device cloning.
-                     */
-                    clone_setup(&g_pVBoxGuestNetBSDClones);
-                    g_VBoxGuestNetBSDEHTag = EVENTHANDLER_REGISTER(dev_clone, VBoxGuestNetBSDClone, 0, 1000);
-                    if (g_VBoxGuestNetBSDEHTag)
-                    {
-                        printf(DEVICE_NAME ": loaded successfully\n");
-                        return 0;
-                    }
-
-                    printf(DEVICE_NAME ": EVENTHANDLER_REGISTER(dev_clone,,,) failed\n");
-                    clone_cleanup(&g_pVBoxGuestNetBSDClones);
-                    VBoxGuestNetBSDRemoveIRQ(self, vboxguest);
-                }
-                else
+		    printf(DEVICE_NAME ": loaded successfully\n");
+                    return 0;
+                } else {
                     printf((DEVICE_NAME ":VBoxGuestInitDevExt failed.\n"));
+                }
                 VBoxGuestDeleteDevExt(&g_DevExt);
             }
             else

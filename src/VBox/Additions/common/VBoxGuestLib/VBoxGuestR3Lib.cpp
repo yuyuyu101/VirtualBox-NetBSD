@@ -42,7 +42,7 @@
    || defined(RT_OS_SOLARIS)
 # include <sys/types.h>
 # include <sys/stat.h>
-# if defined(RT_OS_LINUX) /** @todo check this on solaris+freebsd as well. */
+# if defined(RT_OS_LINUX) || defined(RT_OS_NETBSD) /** @todo check this on solaris+freebsd as well. */
 #  include <sys/ioctl.h>
 # endif
 # include <errno.h>

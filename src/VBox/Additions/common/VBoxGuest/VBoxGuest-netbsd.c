@@ -94,7 +94,7 @@ static int VBoxGuestNetBSDOpen(dev_t device, int flags, int fmt, struct lwp *pro
 static int VBoxGuestNetBSDClose(dev_t device, int flags, int fmt, struct lwp *process);
 static int VBoxGuestNetBSDRead(dev_t, struct uio *, int);
 static int VBoxGuestNetBSDWrite(dev_t, struct uio *, int);
-static int VBoxGuestNetBSDIOCtl(dev_t device, u_long command, caddr_t data,
+static int VBoxGuestNetBSDIOCtl(dev_t device, u_long command, void *data,
 		      int flags, struct lwp *process);
 static int VBoxGuestNetBSDPoll(dev_t, int, struct lwp *);
 static void VBoxGuestNetBSDAttach(int num);

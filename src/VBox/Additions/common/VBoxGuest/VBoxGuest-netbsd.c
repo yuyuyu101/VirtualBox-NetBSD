@@ -55,22 +55,32 @@
 
 typedef struct VBoxGuestDeviceState
 {
+    bus_space_tag_t io_tag;
+    bus_space_handle_t io_handle;
+    bus_addr_t uIOPortBase;
+    bus_size_t io_regsize;
     /** Resource ID of the I/O port */
-    int                iIOPortResId;
+    //int                iIOPortResId;
     /** Pointer to the I/O port resource. */
-    struct resource   *pIOPortRes;
+    //struct resource   *pIOPortRes;
     /** Start address of the IO Port. */
-    uint16_t           uIOPortBase;
+    //uint16_t           uIOPortBase;
+
     /** Resource ID of the MMIO area */
-    int                iVMMDevMemResId;
+    //int                iVMMDevMemResId;
     /** Pointer to the MMIO resource. */
-    struct resource   *pVMMDevMemRes;
+    //struct resource   *pVMMDevMemRes;
     /** Handle of the MMIO resource. */
-    bus_space_handle_t VMMDevMemHandle;
+    //bus_space_handle_t VMMDevMemHandle;
     /** Size of the memory area. */
-    bus_size_t         VMMDevMemSize;
+    //bus_size_t         VMMDevMemSize;
     /** Mapping of the register space */
-    void              *pMMIOBase;
+    //void              *pMMIOBase;
+    bus_space_tag_t iVMMDevMemResId;
+    bus_space_handle_t VMMDevMemHandle;
+    bus_addr_t pMMIOBase;
+    bus_size_t VMMDevMemSize;
+
     /** IRQ number */
     int                iIrqResId;
     /** IRQ resource handle. */
@@ -424,6 +434,11 @@ static int VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
     int rc = VINF_SUCCESS;
     int iResId = 0;
     vboxguest_softc *vboxguest;
+    struct pci_attach_args *pa = aux;
+    bus_space_tag_t iot, memt;
+    bus_space_handle_t ioh, memh;
+    bus_dma_segment_t seg;
+    int ioh_valid, memh_valid;
 
     cUsers = 0;
 
@@ -442,23 +457,16 @@ static int VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
     /*
      * Allocate I/O port resource.
      */
-    iResId                 = PCIR_BAR(0);
-    vboxguest->pIOPortRes     = bus_alloc_resource_any(self, SYS_RES_IOPORT, &iResId, RF_ACTIVE);
-    vboxguest->uIOPortBase    = rman_get_start(vboxguest->pIOPortRes);
-    vboxguest->iIOPortResId   = iResId;
-    if (vboxguest->uIOPortBase)
+    ioh_valid = (pci_mapreg_map(pa, PCI_MAPREG_START, PCI_MAPREG_TYPE_IO, 0, &vboxguest->io_tag, &vboxguest->io_handle, &vboxguest->uIOPortBase, &vboxguest->io_regsize) == 0);
+    
+    if (!ioh_valid)
     {
+        
         /*
          * Map the MMIO region.
          */
-        iResId                   = PCIR_BAR(1);
-        vboxguest->pVMMDevMemRes    = bus_alloc_resource_any(self, SYS_RES_MEMORY, &iResId, RF_ACTIVE);
-        vboxguest->VMMDevMemHandle  = rman_get_bushandle(vboxguest->pVMMDevMemRes);
-        vboxguest->VMMDevMemSize    = rman_get_size(vboxguest->pVMMDevMemRes);
-
-        vboxguest->pMMIOBase       = rman_get_virtual(vboxguest->pVMMDevMemRes);
-        vboxguest->iVMMDevMemResId = iResId;
-        if (vboxguest->pMMIOBase)
+        memh_valid = (pci_mapreg_map(pa, PCI_MAPREG_START+4, PCI_MAPREG_TYPE_MEM, 0, &vboxguest->iVMMDevMemResId, &vboxguest->VMMDevMemHandle, &vboxguest->pMMIOBase, &vboxguest->VMMDevMemSize) == 0);
+        if (!memh_valid)
         {
             /*
              * Call the common device extension initializer.
@@ -507,9 +515,15 @@ MODULE(MODULE_CLASS_DRIVER, vboxguest, NULL);
 static int
 vboxguest_modcmd(modcmd_t cmd, void *opaque)
 {
+    devmajor_t bmajor, cmajor;
+    int error;
+
+    bmajor = cmajor = NODEVMAJOR;
+
     switch (cmd) {
         case MODULE_CMD_INIT:
-                return 0;
+            VBoxGuestNetBSDAttach(0);
+            return 0;
         case MODULE_CMD_FINI:
                 return 0;
         default:

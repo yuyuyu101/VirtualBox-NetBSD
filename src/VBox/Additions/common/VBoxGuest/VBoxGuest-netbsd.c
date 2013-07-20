@@ -55,6 +55,7 @@
 
 typedef struct VBoxGuestDeviceState
 {
+    pci_attach_args *pa;
     bus_space_tag_t io_tag;
     bus_space_handle_t io_handle;
     bus_addr_t uIOPortBase;
@@ -81,6 +82,7 @@ typedef struct VBoxGuestDeviceState
     bus_addr_t pMMIOBase;
     bus_size_t VMMDevMemSize;
 
+    pci_intr_handle_t ih;
     /** IRQ number */
     int                iIrqResId;
     /** IRQ resource handle. */
@@ -397,6 +399,17 @@ static int VBoxGuestNetBSDAddIRQ(device_t pDevice, void *pvState)
     int rc = 0;
     vboxguest_softc *vboxguest = (vboxguest_softc *)pvState;
 
+    if (pci_intr_map(pa, &vboxguest->ih)) {
+        printf((DEVICE_NAME "Couldn't map interrupt.\n"));
+        return VERR_DEV_IO_ERROR;
+    }
+    intrstr = pci_intr_string(vboxguest->pa->pa_pc, vboxguest->ih);
+    vboxguest->pfnIrqHandler = pci_intr_establish(vboxguest->pa->pa_pc, vboxguest->ih, IPL_AUDIO, VBoxGuestNetBSDISR, vboxguest);
+    if (vboxguest->pfnIrqHandler == NULL) {
+        printf("couldn't establish interrupt");
+        return VERR_DEV_IO_ERROR;
+    }
+    
     vboxguest->pIrqRes = bus_alloc_resource_any(pDevice, SYS_RES_IRQ, &iResId, RF_SHAREABLE | RF_ACTIVE);
 
     rc = bus_setup_intr(pDevice, vboxguest->pIrqRes, INTR_TYPE_BIO | INTR_MPSAFE, NULL, (driver_intr_t *)VBoxGuestNetBSDISR, vboxguest,
@@ -422,10 +435,9 @@ static void VBoxGuestNetBSDRemoveIRQ(device_t pDevice, void *pvState)
 {
     vboxguest_softc *vboxguest = (vboxguest_softc *)pvState;
 
-    if (vboxguest->pIrqRes)
+    if (vboxguest->pfnIrqHandler)
     {
-        bus_teardown_intr(pDevice, vboxguest->pIrqRes, vboxguest->pfnIrqHandler);
-        bus_release_resource(pDevice, SYS_RES_IRQ, 0, vboxguest->pIrqRes);
+        pci_intr_disestablish(vboxguest->pa->pa_pc, vboxguest->ih);
     }
 }
 
@@ -453,6 +465,7 @@ static int VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
     }
 
     vboxguest = device_private(self);
+    vboxguest.pa = pa;
 
     /*
      * Allocate I/O port resource.

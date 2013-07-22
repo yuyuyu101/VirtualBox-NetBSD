@@ -349,11 +349,6 @@ static int VBoxGuestNetBSDDetach(device_t self, int flags)
 
     VBoxGuestNetBSDRemoveIRQ(self, vboxguest);
 
-    if (vboxguest->pVMMDevMemRes)
-        bus_release_resource(self, SYS_RES_MEMORY, vboxguest->iVMMDevMemResId, vboxguest->pVMMDevMemRes);
-    if (vboxguest->pIOPortRes)
-        bus_release_resource(self, SYS_RES_IOPORT, vboxguest->iIOPortResId, vboxguest->pIOPortRes);
-
     VBoxGuestDeleteDevExt(&g_DevExt);
 
     RTR0Term();
@@ -410,18 +405,6 @@ static int VBoxGuestNetBSDAddIRQ(device_t pDevice, void *pvState)
         return VERR_DEV_IO_ERROR;
     }
     
-    vboxguest->pIrqRes = bus_alloc_resource_any(pDevice, SYS_RES_IRQ, &iResId, RF_SHAREABLE | RF_ACTIVE);
-
-    rc = bus_setup_intr(pDevice, vboxguest->pIrqRes, INTR_TYPE_BIO | INTR_MPSAFE, NULL, (driver_intr_t *)VBoxGuestNetBSDISR, vboxguest,
-                        &vboxguest->pfnIrqHandler);
-    if (rc)
-    {
-        vboxguest->pfnIrqHandler = NULL;
-        return VERR_DEV_IO_ERROR;
-    }
-
-    vboxguest->iIrqResId = iResId;
-
     return VINF_SUCCESS;
 }
 
@@ -538,7 +521,8 @@ vboxguest_modcmd(modcmd_t cmd, void *opaque)
             VBoxGuestNetBSDAttach(0);
             return 0;
         case MODULE_CMD_FINI:
-                return 0;
+            VBoxGuestNetBSDDetach(0);
+	    return 0;
         default:
                 return ENOTTY;
     }

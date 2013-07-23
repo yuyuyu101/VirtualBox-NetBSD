@@ -38,6 +38,7 @@
 #include <sys/file.h>
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
+#include <dev/pci/pcidevs.h>
 
 #ifdef PVM
 #  undef PVM
@@ -55,42 +56,19 @@
 
 typedef struct VBoxGuestDeviceState
 {
-    pci_attach_args *pa;
+    struct pci_attach_args *pa;
     bus_space_tag_t io_tag;
     bus_space_handle_t io_handle;
     bus_addr_t uIOPortBase;
     bus_size_t io_regsize;
-    /** Resource ID of the I/O port */
-    //int                iIOPortResId;
-    /** Pointer to the I/O port resource. */
-    //struct resource   *pIOPortRes;
-    /** Start address of the IO Port. */
-    //uint16_t           uIOPortBase;
-
-    /** Resource ID of the MMIO area */
-    //int                iVMMDevMemResId;
-    /** Pointer to the MMIO resource. */
-    //struct resource   *pVMMDevMemRes;
-    /** Handle of the MMIO resource. */
-    //bus_space_handle_t VMMDevMemHandle;
-    /** Size of the memory area. */
-    //bus_size_t         VMMDevMemSize;
-    /** Mapping of the register space */
-    //void              *pMMIOBase;
     bus_space_tag_t iVMMDevMemResId;
     bus_space_handle_t VMMDevMemHandle;
     bus_addr_t pMMIOBase;
     bus_size_t VMMDevMemSize;
 
     pci_intr_handle_t ih;
-    /** IRQ number */
-    int                iIrqResId;
-    /** IRQ resource handle. */
-    struct resource   *pIrqRes;
     /** Pointer to the IRQ handler. */
     void              *pfnIrqHandler;
-    /** VMMDev version */
-    uint32_t           u32Version;
     /** Pointer to the session handle. */
     PVBOXGUESTSESSION       session;
     /** Controller features, limits and status. */
@@ -378,7 +356,7 @@ void VBoxGuestNativeISRMousePollEvent(PVBOXGUESTDEVEXT pDevExt)
     /*
      * Wake up poll waiters.
      */
-    selwakeup(&g_SelInfo);
+    selnotify(&g_SelInfo, 0, 0);
 }
 
 /**

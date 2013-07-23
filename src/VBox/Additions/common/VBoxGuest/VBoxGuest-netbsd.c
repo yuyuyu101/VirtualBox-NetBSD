@@ -371,6 +371,8 @@ static int VBoxGuestNetBSDAddIRQ(device_t pDevice, void *pvState)
     int iResId = 0;
     int rc = 0;
     vboxguest_softc *vboxguest = (vboxguest_softc *)pvState;
+    struct pci_attach_args *pa = vboxguest->pa;
+    const char *intrstr;
 
     if (pci_intr_map(pa, &vboxguest->ih)) {
         printf((DEVICE_NAME "Couldn't map interrupt.\n"));
@@ -398,11 +400,11 @@ static void VBoxGuestNetBSDRemoveIRQ(device_t pDevice, void *pvState)
 
     if (vboxguest->pfnIrqHandler)
     {
-        pci_intr_disestablish(vboxguest->pa->pa_pc, vboxguest->ih);
+        pci_intr_disestablish(vboxguest->pa->pa_pc, &vboxguest->ih);
     }
 }
 
-static int VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
+static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
 {
     int rc = VINF_SUCCESS;
     int iResId = 0;
@@ -422,7 +424,7 @@ static int VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
     if (RT_FAILURE(rc))
     {
         LogFunc(("RTR0Init failed.\n"));
-        return ENXIO;
+        return ;
     }
 
     vboxguest = device_private(self);

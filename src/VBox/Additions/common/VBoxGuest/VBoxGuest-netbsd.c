@@ -428,7 +428,7 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
     }
 
     vboxguest = device_private(self);
-    vboxguest.pa = pa;
+    vboxguest->pa = pa;
 
     /*
      * Allocate I/O port resource.
@@ -464,7 +464,7 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
                 if (RT_SUCCESS(rc))
                 {
 		    printf(DEVICE_NAME ": loaded successfully\n");
-                    return 0;
+                    return ;
                 } else {
                     printf((DEVICE_NAME ":VBoxGuestInitDevExt failed.\n"));
                 }
@@ -480,7 +480,7 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
         printf((DEVICE_NAME ":IOport setup failed.\n"));
 
     RTR0Term();
-    return ENXIO;
+    return ;
 }
 
 /* Common code that depend on g_DevExt. */
@@ -498,10 +498,8 @@ vboxguest_modcmd(modcmd_t cmd, void *opaque)
 
     switch (cmd) {
         case MODULE_CMD_INIT:
-            VBoxGuestNetBSDAttach(0);
             return 0;
         case MODULE_CMD_FINI:
-            VBoxGuestNetBSDDetach(0);
 	    return 0;
         default:
                 return ENOTTY;

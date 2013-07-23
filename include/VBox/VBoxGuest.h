@@ -175,7 +175,7 @@ typedef const VBGLBIGREQ *PCVBGLBIGREQ;
 # define VBOXGUEST_IOCTL_CODE_FAST_(Function)       _IO(  'V', (Function))
 # define VBOXGUEST_IOCTL_STRIP_SIZE(Code)           VBOXGUEST_IOCTL_CODE_(_IOC_NR((Code)), 0)
 
-#elif defined(RT_OS_FREEBSD) /** @todo r=bird: Please do it like SUPDRVIOC to keep it as similar as possible. */
+#elif defined(RT_OS_FREEBSD) || defined(RT_OS_NETBSD) /** @todo r=bird: Please do it like SUPDRVIOC to keep it as similar as possible. */
 # include <sys/ioccom.h>
 
 # define VBOXGUEST_IOCTL_CODE_(Function, Size)      _IOWR('V', (Function), VBGLBIGREQ)
@@ -325,7 +325,7 @@ AssertCompileSize(VBoxGuestWriteCoreDump, 4);
 
 #ifdef VBOX_WITH_HGCM
 /** IOCTL to VBoxGuest to connect to a HGCM service. */
-# define VBOXGUEST_IOCTL_HGCM_CONNECT               VBOXGUEST_IOCTL_CODE(16, sizeof(VBoxGuestHGCMConnectInfo))
+# define VBOXGUEST_IOCTL_HGCM_CONNECT               VBOXGUEST_IOCTL_CODE(15, sizeof(VBoxGuestHGCMConnectInfo))
 
 /** IOCTL to VBoxGuest to disconnect from a HGCM service. */
 # define VBOXGUEST_IOCTL_HGCM_DISCONNECT            VBOXGUEST_IOCTL_CODE(17, sizeof(VBoxGuestHGCMDisconnectInfo))

@@ -5,7 +5,7 @@
  */
 
 /*
- * Copyright (C) 2006-2010 Oracle Corporation
+ * Copyright (C) 2013 
  *
  * This file is part of VirtualBox Open Source Edition (OSE), as
  * available from http://www.virtualbox.org. This file is free software;
@@ -17,143 +17,132 @@
  * --------------------------------------------------------------------
  *
  * This code is based on:
+ * Copyright (c) 2011 Jared D. McNeill <jmcneill@invisible.ca>
+ * All rights reserved.
  *
- * tdfx_drv.c -- tdfx driver -*- linux-c -*-
- * Created: Thu Oct  7 10:38:32 1999 by faith@precisioninsight.com
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
  *
- * Copyright 1999 Precision Insight, Inc., Cedar Park, Texas.
- * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
- * All Rights Reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice (including the next
- * paragraph) shall be included in all copies or substantial portions of the
- * Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
- *
- * Authors:
- *    Rickard E. (Rik) Faith <faith@valinux.com>
- *    Daryll Strauss <daryll@valinux.com>
- *    Gareth Hughes <gareth@valinux.com>
- *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 
 #include <sys/cdefs.h>
-#include <sys/module.h>
-#include <sys/param.h>
-#include <sys/systm.h>
-#include <sys/conf.h>
-#include <sys/kernel.h>
-#include <sys/module.h>
-#include <sys/bus.h>
-#include <sys/poll.h>
-#include <sys/selinfo.h>
-#include <sys/queue.h>
-#include <sys/lock.h>
-#include <sys/types.h>
-#include <sys/conf.h>
-#include <sys/malloc.h>
-#include <sys/uio.h>
-#include <sys/file.h>
+__KERNEL_RCSID(0, "$NetBSD: vboxvideo_drm.c, v1.3 2013/08/23 17:18:31 Haomai $");
 
-#include "dev/drm/drmP.h"
-#include "dev/drm/drm_pciids.h"
+#include "drmP.h"
+#include "drm.h"
 
-#define DRIVER_AUTHOR                   "Oracle Corporation"
-#define DRIVER_NAME                     "vboxvideo"
-#define DRIVER_DESC                     "VirtualBox DRM"
-#define DRIVER_DATE                     "20090317"
-#define DRIVER_MAJOR                    1
-#define DRIVER_MINOR                    0
-#define DRIVER_PATCHLEVEL               0
-
-/** @todo Take PCI IDs from VBox/param.h; VBOX_VESA_VENDORID,
- *        VBOX_VESA_DEVICEID. */
-#define vboxvideo_PCI_IDS           { 0x80ee, 0xbeef, 0, "VirtualBox Video" }, \
-                                    { 0, 0, 0, NULL }
-
-static drm_pci_id_list_t vboxvideo_pciidlist[] = {
-	vboxvideo_PCI_IDS
+static drm_pci_id_list_t vboxdrm_pciidlist[] = {
+        { 0x80ee, 0xbeef, 0, "VirtualBox Video" },
+        { 0, 0, 0, NULL },
 };
 
-struct cfdriver vboxvideo_cd = {
-        NULL, "vboxvideo", DV_DULL
-};
-
-static void vboxvideo_configure(struct drm_device *dev)
+static int
+vboxdrm_driver_load(struct drm_device *dev, unsigned long flags)
 {
-	dev->driver->buf_priv_size	= 1; /* No dev_priv */
+        return drm_vblank_init(dev, 1);
+}
 
-	dev->driver->max_ioctl		= 0;
-
-	dev->driver->name		= DRIVER_NAME;
-	dev->driver->desc		= DRIVER_DESC;
-	dev->driver->date		= DRIVER_DATE;
-	dev->driver->major		= DRIVER_MAJOR;
-	dev->driver->minor		= DRIVER_MINOR;
-	dev->driver->patchlevel		= DRIVER_PATCHLEVEL;
+static void
+vboxdrm_configure(struct drm_device *dev)
+{
+        dev->driver->buf_priv_size = 1;
+        dev->driver->load = vboxdrm_driver_load;
+        dev->driver->name = "vbox";
+        dev->driver->desc = "VirtualBox Video";
+        dev->driver->date = "20110130";
+        dev->driver->major = 1;
+        dev->driver->minor = 0;
+        dev->driver->patchlevel = 0;
 }
 
 static int
-vboxvideo_probe(device_t kdev)
+vboxdrm_match(device_t parent, cfdata_t match, void *opaque)
 {
-	return drm_probe(kdev, vboxvideo_pciidlist);
+        struct pci_attach_args *pa = opaque;
+
+        return drm_probe(pa, vboxdrm_pciidlist);
+}
+
+static void
+vboxdrm_attach(device_t parent, device_t self, void *opaque)
+{
+        struct pci_attach_args *pa = opaque;
+        struct drm_device *dev = device_private(self);
+
+        pmf_device_register(self, NULL, NULL);
+
+        dev->driver = kmem_zalloc(sizeof(struct drm_driver_info), KM_SLEEP);
+        if (dev->driver == NULL) {
+                aprint_error_dev(self, "couldn't allocate memory\n");
+                return;
+        }
+
+        vboxdrm_configure(dev);
+        drm_attach(self, pa, vboxdrm_pciidlist);
 }
 
 static int
-vboxvideo_attach(device_t kdev)
+vboxdrm_detach(device_t self, int flags)
 {
-	struct drm_device *dev;
-    dev = device_lookup_private(&vboxguest_cd, minor(device));
+        struct drm_device *dev = device_private(self);
+        int error;
 
-	dev->driver = malloc(sizeof(struct drm_driver_info), DRM_MEM_DRIVER,
-	    M_WAITOK | M_ZERO);
+        pmf_device_deregister(self);
 
-	vboxvideo_configure(dev);
+        error = drm_detach(self, flags);
+        kmem_free(dev->driver, sizeof(struct drm_driver_info));
 
-	return drm_attach(kdev, vboxvideo_pciidlist);
+        return error;
 }
+
+CFATTACH_DECL_NEW(
+    vboxdrm,
+    sizeof(struct drm_device),
+    vboxdrm_match,
+    vboxdrm_attach,
+    vboxdrm_detach,
+    NULL
+);
+
+MODULE(MODULE_CLASS_DRIVER, vboxdrm, "drm");
+
+#ifdef _MODULE
+#include "ioconf.c"
+#endif
 
 static int
-vboxvideo_detach(device_t kdev)
+vboxdrm_modcmd(modcmd_t cmd, void *opaque)
 {
-	struct drm_device *dev;
-    dev = device_lookup_private(&vboxguest_cd, minor(device));
-	int ret;
-
-	ret = drm_detach(kdev);
-
-	free(dev->driver, DRM_MEM_DRIVER);
-	return ret;
-}
-
-CFATTACH_DECL3_NEW(vboxvideo, sizeof(struct drm_device),
-    NULL, vboxvideo_attach, vboxvideo_detach, vboxvideo_probe, NULL, NULL,
-    NULL);
-
-MODULE(MODULE_CLASS_DRIVER, vboxvideo, NULL);
-
-static int vboxguest_modcmd(modcmd_t cmd, void *opaque)
-{
-    switch (cmd) {
+        switch (cmd) {
+#ifdef _MODULE
         case MODULE_CMD_INIT:
-                return 0;
+                return config_init_component(cfdriver_ioconf_vboxdrm,
+                    cfattach_ioconf_vboxdrm, cfdata_ioconf_vboxdrm);
+        case MODULE_CMD_FINI:
+                return config_fini_component(cfdriver_ioconf_vboxdrm,
+                    cfattach_ioconf_vboxdrm, cfdata_ioconf_vboxdrm);
+#else
+        case MODULE_CMD_INIT:
         case MODULE_CMD_FINI:
                 return 0;
+#endif
         default:
                 return ENOTTY;
-    }
+        }
 }

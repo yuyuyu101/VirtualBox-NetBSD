@@ -49,7 +49,9 @@ vboxvideo_drm_DEFS          = VBOX_WITH_HGCM VBOX_SVN_REV=$(VBOX_SVN_REV)
 vboxvideo_drm_DEPS         += $(VBOX_SVN_REV_KMK)
 vboxvideo_drm_INCS.netbsd  += \
 	$(vboxvideo_drm_0_OUTDIR) \
-        /usr/src/sys/
+        /usr/src/sys/ \
+        /usr/src/sys/external/bsd/drm/dist/bsd-core/ \
+        /usr/src/sys/external/bsd/drm/dist/shared-core/
 
 vboxvideo_drm_SOURCES       = vboxvideo_drm.c
 vboxvideo_drm_LIBS          = \

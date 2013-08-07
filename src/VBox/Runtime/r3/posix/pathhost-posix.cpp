@@ -53,6 +53,11 @@ static RTSTRICONV   g_enmFsToUtf8Idx   = RTSTRICONV_LOCALE_TO_UTF8;
 /** The codeset we're using. */
 static char         g_szFsCodeset[32];
 
+#ifdef RT_OS_NETBSD
+static const char *UTF8 = "utf-8";
+#else
+static const char *UTF8 = "UTF-8";
+#endif
 
 /**
  * Do a case insensitive compare where the 2nd string is known and can be case
@@ -187,7 +192,7 @@ int rtPathToNative(char const **ppszNativePath, const char *pszPath, const char 
         if (g_fPassthruUtf8 || !*pszPath)
             *ppszNativePath = pszPath;
         else
-            rc = rtStrConvert(pszPath, strlen(pszPath), "UTF-8",
+            rc = rtStrConvert(pszPath, strlen(pszPath), UTF8,
                               (char **)ppszNativePath, 0, g_szFsCodeset,
                               2, g_enmUtf8ToFsIdx);
     }
@@ -228,7 +233,7 @@ int rtPathFromNative(const char **ppszPath, const char *pszNativePath, const cha
         }
         else
             rc = rtStrConvert(pszNativePath, strlen(pszNativePath), g_szFsCodeset,
-                              (char **)ppszPath, 0, "UTF-8",
+                              (char **)ppszPath, 0, UTF8,
                               2, g_enmFsToUtf8Idx);
     }
     NOREF(pszBasePath); /* We don't query the FS for codeset preferences. */
@@ -253,7 +258,7 @@ int rtPathFromNativeCopy(char *pszPath, size_t cbPath, const char *pszNativePath
             rc = RTStrCopy(pszPath, cbPath, pszNativePath);
         else if (cbPath)
             rc = rtStrConvert(pszNativePath, strlen(pszNativePath), g_szFsCodeset,
-                              &pszPath, cbPath, "UTF-8",
+                              &pszPath, cbPath, UTF8,
                               2, g_enmFsToUtf8Idx);
         else
             rc = VERR_BUFFER_OVERFLOW;
@@ -273,11 +278,10 @@ int rtPathFromNativeDup(char **ppszPath, const char *pszNativePath, const char *
             rc = RTStrDupEx(ppszPath, pszNativePath);
         else
             rc = rtStrConvert(pszNativePath, strlen(pszNativePath), g_szFsCodeset,
-                              ppszPath, 0, "UTF-8",
+                              ppszPath, 0, UTF8,
                               2, g_enmFsToUtf8Idx);
     }
 
     NOREF(pszBasePath); /* We don't query the FS for codeset preferences. */
     return rc;
 }
-

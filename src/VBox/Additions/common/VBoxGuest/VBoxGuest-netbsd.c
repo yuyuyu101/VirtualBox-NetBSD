@@ -486,7 +486,7 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
 CFATTACH_DECL_NEW(vboxguest, sizeof(vboxguest_softc),
     NULL, VBoxGuestNetBSDAttach, VBoxGuestNetBSDDetach, NULL);
 
-MODULE(MODULE_CLASS_DRIVER, vboxguest, "vboxguest");
+MODULE(MODULE_CLASS_DRIVER, vboxguest, NULL);
 
 static int
 vboxguest_modcmd(modcmd_t cmd, void *opaque)

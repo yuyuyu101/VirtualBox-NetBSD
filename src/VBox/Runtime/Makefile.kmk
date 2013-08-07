@@ -1400,6 +1400,9 @@ VBoxRT_LIBS.darwin             = \
 VBoxRT_LIBS.freebsd            = \
 	iconv \
 	rt
+VBoxRT_LIBS.netbsd             = \
+	iconv \
+	rt
 VBoxRT_LIBS.solaris            = \
 	kstat \
 	contract
@@ -1613,7 +1616,7 @@ RuntimeR0_SOURCES      := \
 	\
 	$(RuntimeNoCrt_SOURCES)
 
-if1of ($(KBUILD_TARGET), darwin solaris freebsd)
+if1of ($(KBUILD_TARGET), darwin solaris freebsd netbsd)
 RuntimeR0_SOURCES += \
 	common/math/gcc/adddi3.c \
 	common/math/gcc/anddi3.c \
@@ -1673,6 +1676,8 @@ RuntimeR0Drv_DEFS.linux = MODULE KBUILD_MODNAME=KBUILD_STR\(vboxdrv\) KBUILD_BAS
 RuntimeR0Drv_INCS      := $(PATH_SUB_CURRENT) include
 RuntimeR0Drv_INCS.freebsd = \
 	$(PATH_STAGE)/gen-sys-hdrs
+RuntimeR0Drv_INCS.netbsd = \
+	/usr/src/sys
 RuntimeR0Drv_INCS.linux = \
 	r0drv/linux
 RuntimeR0Drv_INCS.solaris = \
@@ -1982,6 +1987,21 @@ RuntimeR0Drv_SOURCES.netbsd = \
 	generic/mppresent-generic.cpp \
 	r0drv/generic/RTMpIsCpuWorkPending-r0drv-generic.cpp \
 	r0drv/generic/mpnotification-r0drv-generic.cpp \
+	r0drv/netbsd/alloc-r0drv-netbsd.c \
+	r0drv/netbsd/assert-r0drv-netbsd.c \
+	r0drv/netbsd/initterm-r0drv-netbsd.c \
+	r0drv/netbsd/memobj-r0drv-netbsd.c \
+	r0drv/netbsd/memuserkernel-r0drv-netbsd.c \
+	r0drv/netbsd/mp-r0drv-netbsd.c \
+	r0drv/netbsd/process-r0drv-netbsd.c \
+	r0drv/netbsd/semevent-r0drv-netbsd.c \
+	r0drv/netbsd/semeventmulti-r0drv-netbsd.c \
+	r0drv/netbsd/semfastmutex-r0drv-netbsd.c \
+	r0drv/netbsd/semmutex-r0drv-netbsd.c \
+	r0drv/netbsd/spinlock-r0drv-netbsd.c \
+	r0drv/netbsd/thread-r0drv-netbsd.c \
+	r0drv/netbsd/thread2-r0drv-netbsd.c \
+	r0drv/netbsd/time-r0drv-netbsd.c \
 	generic/timer-generic.cpp \
 	r0drv/memobj-r0drv.cpp \
 	r0drv/powernotification-r0drv.c
@@ -2118,7 +2138,7 @@ ifdef VBOX_WITH_RAW_MODE
   RuntimeRC_SOURCES += os2/sys0.asm
  endif
 
- if1of ($(KBUILD_TARGET), darwin solaris freebsd)
+ if1of ($(KBUILD_TARGET), darwin solaris freebsd netbsd)
   RuntimeRC_SOURCES += \
  	common/math/gcc/adddi3.c \
  	common/math/gcc/anddi3.c \

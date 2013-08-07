@@ -464,8 +464,9 @@ RTR3DECL(int)  RTStrUtf8ToCurrentCPTag(char **ppszString, const char *pszString,
     }
 #ifdef RT_OS_NETBSD
     return rtStrConvertWrapper(pszString, cch, "utf-8", ppszString, 0, "", 1, RTSTRICONV_UTF8_TO_LOCALE);
-#endif
+#else
     return rtStrConvertWrapper(pszString, cch, "UTF-8", ppszString, 0, "", 1, RTSTRICONV_UTF8_TO_LOCALE);
+#endif
 }
 
 
@@ -487,6 +488,10 @@ RTR3DECL(int)  RTStrCurrentCPToUtf8Tag(char **ppszString, const char *pszString,
             return VINF_SUCCESS;
         return VERR_NO_TMP_MEMORY;
     }
+#ifdef RT_OS_NETBSD
+    return rtStrConvertWrapper(pszString, cch, "", ppszString, 0, "utf-8", 2, RTSTRICONV_LOCALE_TO_UTF8);
+#else
     return rtStrConvertWrapper(pszString, cch, "", ppszString, 0, "UTF-8", 2, RTSTRICONV_LOCALE_TO_UTF8);
+#endif
 }
 

@@ -173,7 +173,7 @@ static int rtstrConvertCached(const void *pvInput, size_t cbInput, const char *p
         iconv_t hIconv = (iconv_t)*phIconv;
         if (hIconv == (iconv_t)-1)
         {
-#ifdef RT_OS_SOLARIS
+#if defined(RT_OS_SOLARIS) || defined(RT_OS_NETBSD)
             /* Solaris doesn't grok empty codeset strings, so help it find the current codeset. */
             if (!*pszInputCS)
                 pszInputCS = rtStrGetLocaleCodeset();
@@ -462,6 +462,9 @@ RTR3DECL(int)  RTStrUtf8ToCurrentCPTag(char **ppszString, const char *pszString,
             return VINF_SUCCESS;
         return VERR_NO_TMP_MEMORY;
     }
+#ifdef RT_OS_NETBSD
+    return rtStrConvertWrapper(pszString, cch, "utf-8", ppszString, 0, "", 1, RTSTRICONV_UTF8_TO_LOCALE);
+#endif
     return rtStrConvertWrapper(pszString, cch, "UTF-8", ppszString, 0, "", 1, RTSTRICONV_UTF8_TO_LOCALE);
 }
 

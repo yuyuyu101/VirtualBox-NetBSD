@@ -5,7 +5,7 @@
  */
 
 /*
- * Copyright (C) 2013 
+ * Copyright (C) 2013
  *
  * This file is part of VirtualBox Open Source Edition (OSE), as
  * available from http://www.virtualbox.org. This file is free software;
@@ -65,9 +65,9 @@ vboxdrm_configure(struct drm_device *dev)
         dev->driver->load = vboxdrm_driver_load;
         dev->driver->name = "vbox";
         dev->driver->desc = "VirtualBox Video";
-        dev->driver->date = "20110130";
+        dev->driver->date = "20130904";
         dev->driver->major = 1;
-        dev->driver->minor = 0;
+        dev->driver->minor = 1;
         dev->driver->patchlevel = 0;
 }
 

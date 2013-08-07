@@ -49,7 +49,7 @@
 #if defined(RT_OS_OS2) && (!defined(__INNOTEK_LIBC__) || __INNOTEK_LIBC__ < 0x006)
 # include <io.h>
 #endif
-#if defined(RT_OS_DARWIN) || defined(RT_OS_FREEBSD)
+#if defined(RT_OS_DARWIN) || defined(RT_OS_FREEBSD) || defined(RT_OS_NETBSD)
 # include <sys/disk.h>
 #endif
 #ifdef RT_OS_SOLARIS
@@ -155,7 +155,7 @@ RTR3DECL(int) RTFileOpen(PRTFILE pFile, const char *pszFilename, uint64_t fOpen)
     if (fOpen & RTFILE_O_ASYNC_IO)
         fOpenMode |= O_DIRECT;
 #endif
-#if defined(O_DIRECT) && (defined(RT_OS_LINUX) || defined(RT_OS_FREEBSD))
+#if defined(O_DIRECT) && (defined(RT_OS_LINUX) || defined(RT_OS_FREEBSD) || defined(RT_OS_NETBSD))
     /* Disable the kernel cache. */
     if (fOpen & RTFILE_O_NO_CACHE)
         fOpenMode |= O_DIRECT;
@@ -561,7 +561,7 @@ RTR3DECL(int) RTFileGetSize(RTFILE hFile, uint64_t *pcbSize)
         if (   st.st_size != 0
 #if defined(RT_OS_SOLARIS)
             || (!S_ISBLK(st.st_mode) && !S_ISCHR(st.st_mode))
-#elif defined(RT_OS_FREEBSD)
+#elif defined(RT_OS_FREEBSD) || defined(RT_OS_FREEBSD)
             || !S_ISCHR(st.st_mode)
 #else
             || !S_ISBLK(st.st_mode)

@@ -270,7 +270,7 @@ static int VBoxGuestNetBSDIOCtl(dev_t device, u_long command, void *data, int fl
             rc = copyout(pvBuf, (void *)(uintptr_t)ReqWrap->pvDataR3, cbDataReturned);
             if (RT_UNLIKELY(rc))
             {
-                Log((DEVICE_NAME ":VBoxGuestNetBSDIOCtl: copyout failed; pvBuf=%p pArg=%p Cmd=%lu. rc=%d\n", pvBuf, pvData, ulCmd, rc));
+                Log((DEVICE_NAME ":VBoxGuestNetBSDIOCtl: copyout failed; pvBuf=%p pArg=%p. rc=%d\n", pvBuf, data, rc));
                 rc = EFAULT;
             }
         }

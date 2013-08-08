@@ -28,8 +28,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef ___the_netbsd_kernel_h
-#define ___the_netbsd_kernel_h
+#ifndef ___the_freebsd_kernel_h
+#define ___the_freebsd_kernel_h
 
 #include <iprt/types.h>
 
@@ -41,12 +41,10 @@
 #include <sys/errno.h>
 #include <sys/kernel.h>
 #include <sys/uio.h>
-#include <sys/libkern.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
-#include <sys/pcpu.h>
 #include <sys/proc.h>
-#include <sys/limits.h>
+#include <sys/syslimits.h>
 #include <sys/unistd.h>
 #include <sys/kthread.h>
 #include <sys/lock.h>
@@ -54,18 +52,6 @@
 #include <sys/sched.h>
 #include <sys/callout.h>
 #include <sys/cpu.h>
-#include <sys/smp.h>
-#include <sys/sleepqueue.h>
-#include <sys/sx.h>
-#include <vm/vm.h>
-#include <vm/pmap.h>            /* for vtophys */
-#include <vm/vm_map.h>
-#include <vm/vm_object.h>
-#include <vm/vm_kern.h>
-#include <vm/vm_param.h>        /* KERN_SUCCESS ++ */
-#include <vm/vm_page.h>
-#include <vm/vm_phys.h>         /* vm_phys_alloc_* */
-#include <vm/vm_extern.h>       /* kmem_alloc_attr */
 #include <sys/vmmeter.h>        /* cnt */
 #include <sys/resourcevar.h>
 #include <machine/cpu.h>
@@ -81,13 +67,13 @@
 /**
  * Our pmap_enter version
  */
+#if __FreeBSD_version >= 701105
+# define MY_PMAP_ENTER(pPhysMap, AddrR3, pPage, fProt, fWired) \
+    pmap_enter(pPhysMap, AddrR3, VM_PROT_NONE, pPage, fProt, fWired)
+#else
 # define MY_PMAP_ENTER(pPhysMap, AddrR3, pPage, fProt, fWired) \
     pmap_enter(pPhysMap, AddrR3, pPage, fProt, fWired)
-
-/**
- * Check whether we can use kmem_alloc_attr for low allocs.
- */
-# define USE_KMEM_ALLOC_ATTR
+#endif
 
 /**
  * Check whether we can use kmem_alloc_prot.

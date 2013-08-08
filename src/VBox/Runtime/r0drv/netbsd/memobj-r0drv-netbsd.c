@@ -261,6 +261,7 @@ static int rtR0MemObjNetBSDAllocHelper(PRTR0MEMOBJNETBSD pMemNetBSD, bool fExecu
     rtR0MemObjDelete(&pMemNetBSD->Core);
     return rc;
 }
+
 DECLHIDDEN(int) rtR0MemObjNativeAllocPage(PPRTR0MEMOBJINTERNAL ppMem, size_t cb, bool fExecutable)
 {
     PRTR0MEMOBJNETBSD pMemNetBSD = (PRTR0MEMOBJNETBSD)rtR0MemObjNew(sizeof(*pMemNetBSD),
@@ -268,15 +269,17 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocPage(PPRTR0MEMOBJINTERNAL ppMem, size_t cb,
     if (!pMemNetBSD)
         return VERR_NO_MEMORY;
 
-    int rc = rtR0MemObjNetBSDAllocHelper(pMemNetBSD, fExecutable, ~(vm_paddr_t)0, false, VERR_NO_MEMORY);
-    if (RT_FAILURE(rc))
+    void *pvMem = kmem_alloc(cb, KM_SLEEP);
+    if (RT_UNLIKELY(!pvMem))
     {
         rtR0MemObjDelete(&pMemNetBSD->Core);
-        return rc;
+        return VERR_NO_PAGE_MEMORY;
     }
 
+    pMemNetBSD->Core.pv = pvMem;
+    pMemNetBSD->pvHandle = NULL;
     *ppMem = &pMemNetBSD->Core;
-    return rc;
+    return VINF_SUCCESS;
 }
 
 

@@ -51,10 +51,13 @@
 #include <sys/mutex.h>
 #include <sys/sched.h>
 #include <sys/callout.h>
+#include <sys/kmem.h>
 #include <sys/cpu.h>
 #include <sys/vmmeter.h>        /* cnt */
 #include <sys/resourcevar.h>
 #include <uvm/uvm.h>
+#include <uvm/uvm_extern.h>
+#include <uvm/uvm_page.h>
 #include <machine/cpu.h>
 
 /**

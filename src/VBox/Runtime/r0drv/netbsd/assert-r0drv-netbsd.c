@@ -35,7 +35,6 @@
 
 #include <iprt/assert.h>
 #include <iprt/log.h>
-#include <iprt/string.h>
 #include <iprt/stdarg.h>
 
 #include "internal/assert.h"
@@ -52,18 +51,12 @@ DECLHIDDEN(void) rtR0AssertNativeMsg1(const char *pszExpr, unsigned uLine, const
 
 DECLHIDDEN(void) rtR0AssertNativeMsg2V(bool fInitial, const char *pszFormat, va_list va)
 {
-    char szMsg[256];
-
-    RTStrPrintfV(szMsg, sizeof(szMsg) - 1, pszFormat, va);
-    szMsg[sizeof(szMsg) - 1] = '\0';
-    printf("%s", szMsg);
-
-    NOREF(fInitial);
+    /** @todo implement rtR0AssertNativeMsg2V. */
 }
 
 
 RTR0DECL(void) RTR0AssertPanicSystem(void)
 {
-    /** @todo implement RTR0AssertPanicSystem. */
-}
+    panic("%s%s", g_szRTAssertMsg1, g_szRTAssertMsg2);
 
+}

@@ -63,16 +63,16 @@ DECLHIDDEN(int) rtThreadNativeSetPriority(PRTTHREADINT pThread, RTTHREADTYPE enm
         case RTTHREADTYPE_DEFAULT:              iPriority = PZERO;          break;
         case RTTHREADTYPE_MSG_PUMP:             iPriority = PZERO - 4;      break;
         case RTTHREADTYPE_IO:                   iPriority = PRIBIO;         break;
-        case RTTHREADTYPE_TIMER:                iPriority = PRI_MIN_KERN;   break;
+        case RTTHREADTYPE_TIMER:                iPriority = PSWP;           break;
         default:
             AssertMsgFailed(("enmType=%d\n", enmType));
             return VERR_INVALID_PARAMETER;
     }
 
-    thread_lock(curthread);
-    sched_prio(curthread, iPriority);
-    curthread->td_base_pri = iPriority;
-    thread_unlock(curthread);
+    lwp_lock(curlwp);
+    sched_nice(curproc, iPriority);
+    curlwp->l_priority = iPriority;
+    lwp_unlock(curlwp);
 
     return VINF_SUCCESS;
 }
@@ -100,7 +100,7 @@ DECLHIDDEN(void) rtThreadNativeDestroy(PRTTHREADINT pThread)
  */
 static void rtThreadNativeMain(void *pvThreadInt)
 {
-    const struct thread *Self = curthread;
+    const struct lwp *Self = curlwp;
     PRTTHREADINT pThreadInt = (PRTTHREADINT)pvThreadInt;
     int rc;
 
@@ -114,11 +114,13 @@ DECLHIDDEN(int) rtThreadNativeCreate(PRTTHREADINT pThreadInt, PRTNATIVETHREAD pN
 {
     int rc;
     struct proc *pProc;
+    struct lwp *l;
 
-    rc = kthread_create(rtThreadNativeMain, pThreadInt, &pProc, RFHIGHPID, 0, "%s", pThreadInt->szName);
+    rc = kthread_create(PRI_NONE, 0, NULL, rtThreadNativeMain, (void *)pThreadInt, &l, "%s", pThreadInt->szName);
+
     if (!rc)
     {
-        *pNativeThread = (RTNATIVETHREAD)FIRST_THREAD_IN_PROC(pProc);
+        *pNativeThread = (RTNATIVETHREAD)l;
         rc = VINF_SUCCESS;
     }
     else

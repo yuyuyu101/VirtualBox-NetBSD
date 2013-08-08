@@ -41,7 +41,7 @@
 
 RTDECL(RTNATIVETHREAD) RTThreadNativeSelf(void)
 {
-    return (RTNATIVETHREAD)curthread;
+    return (RTNATIVETHREAD)curlwp;
 }
 
 
@@ -113,8 +113,8 @@ RTDECL(int) RTThreadSleepNoLog(RTMSINTERVAL cMillies)
 
 RTDECL(bool) RTThreadYield(void)
 {
-    uio_yield();
-    return false; /** @todo figure this one ... */
+    yield();
+    return true;
 }
 
 
@@ -122,7 +122,7 @@ RTDECL(bool) RTThreadPreemptIsEnabled(RTTHREAD hThread)
 {
     Assert(hThread == NIL_RTTHREAD);
 
-    return curthread->td_critnest == 0
+    return curlwp->l_dopreempt == 0
         && ASMIntAreEnabled(); /** @todo is there a native netbsd function/macro for this? */
 }
 
@@ -131,7 +131,7 @@ RTDECL(bool) RTThreadPreemptIsPending(RTTHREAD hThread)
 {
     Assert(hThread == NIL_RTTHREAD);
 
-    return curthread->td_owepreempt == 1;
+    return curlwp->l_dopreempt;
 }
 
 
@@ -148,28 +148,27 @@ RTDECL(bool) RTThreadPreemptIsPossible(void)
     return true;
 }
 
-
 RTDECL(void) RTThreadPreemptDisable(PRTTHREADPREEMPTSTATE pState)
 {
     AssertPtr(pState);
-    Assert(pState->u32Reserved == 0);
-    pState->u32Reserved = 42;
 
-    critical_enter();
-    RT_ASSERT_PREEMPT_CPUID_DISABLE(pState);
+    curlwp->l_nopreempt++;
+    __insn_barrier();
 }
 
 
 RTDECL(void) RTThreadPreemptRestore(PRTTHREADPREEMPTSTATE pState)
 {
+
     AssertPtr(pState);
-    Assert(pState->u32Reserved == 42);
-    pState->u32Reserved = 0;
-
-    RT_ASSERT_PREEMPT_CPUID_RESTORE(pState);
-    critical_exit();
+    __insn_barrier();
+    if (--curlwp->l_nopreempt != 0)
+        return;
+    __insn_barrier();
+    if (__predict_false(curlwp->l_dopreempt))
+        kpreempt(0);
+    __insn_barrier();
 }
-
 
 RTDECL(bool) RTThreadIsInInterrupt(RTTHREAD hThread)
 {

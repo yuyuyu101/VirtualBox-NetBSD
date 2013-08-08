@@ -57,18 +57,11 @@ typedef struct RTSPINLOCKINTERNAL
     /** Spinlock magic value (RTSPINLOCK_MAGIC). */
     uint32_t volatile   u32Magic;
     /** The spinlock. */
-    uint32_t volatile   fLocked;
+    kmutex_t            pSpinLock;
     /** Saved interrupt flag. */
     uint32_t volatile   fIntSaved;
     /** The spinlock creation flags. */
     uint32_t            fFlags;
-#ifdef RT_MORE_STRICT
-    /** The idAssertCpu variable before acquring the lock for asserting after
-     *  releasing the spinlock. */
-    RTCPUID volatile    idAssertCpu;
-    /** The CPU that owns the lock. */
-    RTCPUID volatile    idCpuOwner;
-#endif
 } RTSPINLOCKINTERNAL, *PRTSPINLOCKINTERNAL;
 
 
@@ -89,9 +82,9 @@ RTDECL(int)  RTSpinlockCreate(PRTSPINLOCK pSpinlock, uint32_t fFlags, const char
      * Initialize & return.
      */
     pThis->u32Magic  = RTSPINLOCK_MAGIC;
-    pThis->fLocked   = 0;
     pThis->fFlags    = fFlags;
     pThis->fIntSaved = 0;
+    mutex_init(&pThis->pSpinLock, MUTEX_DEFAULT, IPL_AUDIO);
 
     *pSpinlock = pThis;
     return VINF_SUCCESS;
@@ -115,6 +108,7 @@ RTDECL(int)  RTSpinlockDestroy(RTSPINLOCK Spinlock)
      * Make the lock invalid and release the memory.
      */
     ASMAtomicIncU32(&pThis->u32Magic);
+    mutex_destroy(&pThis->pSpinLock);
     RTMemFree(pThis);
     return VINF_SUCCESS;
 }
@@ -129,53 +123,14 @@ RTDECL(void) RTSpinlockAcquire(RTSPINLOCK Spinlock)
 
     if (pThis->fFlags & RTSPINLOCK_FLAGS_INTERRUPT_SAFE)
     {
-        for (;;)
-        {
-            uint32_t fIntSaved = ASMIntDisableFlags();
-            critical_enter();
-
-            int c = 50;
-            for (;;)
-            {
-                if (ASMAtomicCmpXchgU32(&pThis->fLocked, 1, 0))
-                {
-                    RT_ASSERT_PREEMPT_CPUID_SPIN_ACQUIRED(pThis);
-                    pThis->fIntSaved = fIntSaved;
-                    return;
-                }
-                if (--c <= 0)
-                    break;
-                cpu_spinwait();
-            }
-
-            /* Enable interrupts while we sleep. */
-            ASMSetFlags(fIntSaved);
-            critical_exit();
-            DELAY(1);
-        }
+        uint32_t fIntSaved = ASMGetFlags();
+        ASMIntDisable();
+        mutex_spin_enter(&pThis->pSpinLock);
+        pThis->fIntSaved = fIntSaved;
     }
     else
     {
-        for (;;)
-        {
-            critical_enter();
-
-            int c = 50;
-            for (;;)
-            {
-                if (ASMAtomicCmpXchgU32(&pThis->fLocked, 1, 0))
-                {
-                    RT_ASSERT_PREEMPT_CPUID_SPIN_ACQUIRED(pThis);
-                    return;
-                }
-                if (--c <= 0)
-                    break;
-                cpu_spinwait();
-            }
-
-            critical_exit();
-            DELAY(1);
-        }
+        mutex_spin_enter(&pThis->pSpinLock);
     }
 }
 
@@ -183,28 +138,20 @@ RTDECL(void) RTSpinlockAcquire(RTSPINLOCK Spinlock)
 RTDECL(void) RTSpinlockRelease(RTSPINLOCK Spinlock)
 {
     PRTSPINLOCKINTERNAL pThis = (PRTSPINLOCKINTERNAL)Spinlock;
-    RT_ASSERT_PREEMPT_CPUID_SPIN_RELEASE_VARS();
-
     AssertPtr(pThis);
     Assert(pThis->u32Magic == RTSPINLOCK_MAGIC);
-    RT_ASSERT_PREEMPT_CPUID_SPIN_RELEASE(pThis);
 
     if (pThis->fFlags & RTSPINLOCK_FLAGS_INTERRUPT_SAFE)
     {
         uint32_t fIntSaved = pThis->fIntSaved;
         pThis->fIntSaved = 0;
-        if (ASMAtomicCmpXchgU32(&pThis->fLocked, 0, 1))
-            ASMSetFlags(fIntSaved);
-        else
-            AssertMsgFailed(("Spinlock %p was not locked!\n", pThis));
+        mutex_spin_exit(&pThis->pSpinLock);
+        ASMSetFlags(fIntSaved);
     }
     else
     {
-        if (!ASMAtomicCmpXchgU32(&pThis->fLocked, 0, 1))
-            AssertMsgFailed(("Spinlock %p was not locked!\n", pThis));
+        mutex_spin_exit(&pThis->pSpinLock);
     }
-
-    critical_exit();
 }
 
 

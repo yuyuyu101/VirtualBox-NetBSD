@@ -29,6 +29,8 @@ typedef struct RTR0MEMOBJNETBSD
     /** The core structure. */
     RTR0MEMOBJINTERNAL  Core;
     int                 is_uvm;
+    size_t              size;
+    struct pglist       pglist;
 } RTR0MEMOBJNETBSD, *PRTR0MEMOBJNETBSD;
 
 
@@ -84,69 +86,19 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
     switch (pMemNetBSD->Core.enmType)
     {
         case RTR0MEMOBJTYPE_PAGE:
+        {
+            kmem_free(pMemNetBSD->Core.pv, pMemNetBSD->size);
+            break;
+        }
         case RTR0MEMOBJTYPE_LOW:
         case RTR0MEMOBJTYPE_CONT:
-            rc = vm_map_remove(kernel_map,
-                                (vm_offset_t)pMemNetBSD->Core.pv,
-                                (vm_offset_t)pMemNetBSD->Core.pv + pMemNetBSD->Core.cb);
-            AssertMsg(rc == KERN_SUCCESS, ("%#x", rc));
-            break;
-
         case RTR0MEMOBJTYPE_LOCK:
-        {
-            vm_map_t pMap = kernel_map;
-
-            if (pMemNetBSD->Core.u.Lock.R0Process != NIL_RTR0PROCESS)
-                pMap = &((struct proc *)pMemNetBSD->Core.u.Lock.R0Process)->p_vmspace->vm_map;
-
-            rc = vm_map_unwire(pMap,
-                               (vm_offset_t)pMemNetBSD->Core.pv,
-                               (vm_offset_t)pMemNetBSD->Core.pv + pMemNetBSD->Core.cb,
-                               VM_MAP_WIRE_SYSTEM | VM_MAP_WIRE_NOHOLES);
-            AssertMsg(rc == KERN_SUCCESS, ("%#x", rc));
-            break;
-        }
-
         case RTR0MEMOBJTYPE_RES_VIRT:
-        {
-            vm_map_t pMap = kernel_map;
-            if (pMemNetBSD->Core.u.ResVirt.R0Process != NIL_RTR0PROCESS)
-                pMap = &((struct proc *)pMemNetBSD->Core.u.ResVirt.R0Process)->p_vmspace->vm_map;
-            rc = vm_map_remove(pMap,
-                               (vm_offset_t)pMemNetBSD->Core.pv,
-                               (vm_offset_t)pMemNetBSD->Core.pv + pMemNetBSD->Core.cb);
-            AssertMsg(rc == KERN_SUCCESS, ("%#x", rc));
-            break;
-        }
-
         case RTR0MEMOBJTYPE_MAPPING:
-        {
-            vm_map_t pMap = kernel_map;
-
-            if (pMemNetBSD->Core.u.Mapping.R0Process != NIL_RTR0PROCESS)
-                pMap = &((struct proc *)pMemNetBSD->Core.u.Mapping.R0Process)->p_vmspace->vm_map;
-            rc = vm_map_remove(pMap,
-                               (vm_offset_t)pMemNetBSD->Core.pv,
-                               (vm_offset_t)pMemNetBSD->Core.pv + pMemNetBSD->Core.cb);
-            AssertMsg(rc == KERN_SUCCESS, ("%#x", rc));
-            break;
-        }
-
         case RTR0MEMOBJTYPE_PHYS:
         case RTR0MEMOBJTYPE_PHYS_NC:
         {
-            VM_OBJECT_LOCK(pMemNetBSD->pObject);
-            vm_page_t pPage = vm_page_find_least(pMemNetBSD->pObject, 0);
-            vm_page_lock_queues();
-            for (vm_page_t pPage = vm_page_find_least(pMemNetBSD->pObject, 0);
-                 pPage != NULL;
-                 pPage = vm_page_next(pPage))
-            {
-                vm_page_unwire(pPage, 0);
-            }
-            vm_page_unlock_queues();
-            VM_OBJECT_UNLOCK(pMemNetBSD->pObject);
-            vm_object_deallocate(pMemNetBSD->pObject);
+            
             break;
         }
 
@@ -159,46 +111,45 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
 }
 
 
-void *rtR0MemObjNetBSDContigPhysAllocHelper(size_t cPages, paddr_t VmPhysAddrHigh)
+void *rtR0MemObjNetBSDContigPhysAllocHelper(struct pglist *pglist, size_t cPages, paddr_t VmPhysAddrHigh)
 {
-    struct pglist pglist;
     int error;
 
-    error = uvm_pglistalloc(cPages * PAGE_SIZE, 0, VmPhysAddrHigh, PAGE_SIZE, 0, &pglist, 1, 1);
+    error = uvm_pglistalloc(cPages * PAGE_SIZE, 0, VmPhysAddrHigh, PAGE_SIZE, 0, pglist, 1, 1);
     if (error)
         return NULL;
 
     /*
      * Get the physical address from the first page.
      */
-    const struct vm_page * const pg = TAILQ_FIRST(&pglist);
+    const struct vm_page * const pg = TAILQ_FIRST(pglist);
     KASSERT(pg != NULL);
     const paddr_t pa = VM_PAGE_TO_PHYS(pg);
 
     /*
      * We need to return a direct-mapped VA for the pa.
      */
-    return (void *)PMAP_MAP_POOLPAGE(pa);
+    return (void*)pa;
 }
 
-static void *rtR0MemObjNetBSDPhysAllocHelper(size_t cPages, paddr_t VmPhysAddrHigh, bool fContiguous, int rcNoMem)
+static void *rtR0MemObjNetBSDPhysAllocHelper(struct pglist *pglist, size_t cPages, paddr_t VmPhysAddrHigh, bool fContiguous, int rcNoMem)
 {
     //if (fContiguous)
     {
-        void *mem = rtR0MemObjNetBSDContigPhysAllocHelper(cPages, VmPhysAddrHigh)
+        void *mem = rtR0MemObjNetBSDContigPhysAllocHelper(pglist, cPages, VmPhysAddrHigh);
         if (mem)
             return mem;
-        return rcNoMem;
+        return NULL;
     }
 }
 
-static int rtR0MemObjNetBSDAllocHelper(PRTR0MEMOBJNETBSD pMemNetBSD, bool fExecutable,
-                                        vm_paddr_t VmPhysAddrHigh, bool fContiguous, int rcNoMem)
+static void *rtR0MemObjNetBSDAllocHelper(PRTR0MEMOBJNETBSD pMemNetBSD, bool fExecutable,
+                                         paddr_t VmPhysAddrHigh, bool fContiguous, int rcNoMem)
 {
     size_t      cPages = atop(pMemNetBSD->Core.cb);
     void        *rc;
 
-    rc = rtR0MemObjNetBSDPhysAllocHelper(cPages, VmPhysAddrHigh, fContiguous, rcNoMem);
+    rc = rtR0MemObjNetBSDPhysAllocHelper(&pMemNetBSD->pglist, cPages, VmPhysAddrHigh, fContiguous, rcNoMem);
     if (rc)
     {
         /* Store start address */
@@ -206,7 +157,7 @@ static int rtR0MemObjNetBSDAllocHelper(PRTR0MEMOBJNETBSD pMemNetBSD, bool fExecu
         pMemNetBSD->is_uvm = 1;
         return VINF_SUCCESS;
     }
-    return rc;
+    return NULL;
 }
 
 DECLHIDDEN(int) rtR0MemObjNativeAllocPage(PPRTR0MEMOBJINTERNAL ppMem, size_t cb, bool fExecutable)
@@ -225,6 +176,7 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocPage(PPRTR0MEMOBJINTERNAL ppMem, size_t cb,
 
     pMemNetBSD->Core.pv = pvMem;
     pMemNetBSD->is_uvm = 0;
+    pMemNetBSD->size = cb;
     *ppMem = &pMemNetBSD->Core;
     return VINF_SUCCESS;
 }
@@ -237,15 +189,15 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocLow(PPRTR0MEMOBJINTERNAL ppMem, size_t cb, 
     if (!pMemNetBSD)
         return VERR_NO_MEMORY;
 
-    int rc = rtR0MemObjNetBSDAllocHelper(pMemNetBSD, fExecutable, _4G - 1, false, VERR_NO_LOW_MEMORY);
-    if (RT_FAILURE(rc))
+    void *rc = rtR0MemObjNetBSDAllocHelper(pMemNetBSD, fExecutable, _4G - 1, false, VERR_NO_LOW_MEMORY);
+    if (!rc)
     {
         rtR0MemObjDelete(&pMemNetBSD->Core);
-        return rc;
+        return VERR_NO_MEMORY;
     }
 
     *ppMem = &pMemNetBSD->Core;
-    return rc;
+    return VINF_SUCCESS;
 }
 
 
@@ -256,16 +208,16 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocCont(PPRTR0MEMOBJINTERNAL ppMem, size_t cb,
     if (!pMemNetBSD)
         return VERR_NO_MEMORY;
 
-    int rc = rtR0MemObjNetBSDAllocHelper(pMemNetBSD, fExecutable, _4G - 1, true, VERR_NO_CONT_MEMORY);
-    if (RT_FAILURE(rc))
+    void *rc = rtR0MemObjNetBSDAllocHelper(pMemNetBSD, fExecutable, _4G - 1, true, VERR_NO_CONT_MEMORY);
+    if (!rc)
     {
         rtR0MemObjDelete(&pMemNetBSD->Core);
-        return rc;
+        return VERR_NO_MEMORY;
     }
 
     pMemNetBSD->Core.u.Cont.Phys = pMemNetBSD->Core.pv;
     *ppMem = &pMemNetBSD->Core;
-    return rc;
+    return VINF_SUCCESS;
 }
 
 
@@ -288,13 +240,13 @@ static int rtR0MemObjNetBSDAllocPhysPages(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ
     else
         VmPhysAddrHigh = ~(paddr_t)0;
 
-    int rc = rtR0MemObjNetBSDPhysAllocHelper(cPages, VmPhysAddrHigh, fContiguous, rcNoMem);
-    if (RT_SUCCESS(rc))
+    void *rc = rtR0MemObjNetBSDPhysAllocHelper(&pMemNetBSD->pglist, cPages, VmPhysAddrHigh, fContiguous, rcNoMem);
+    if (rc)
     {
         if (fContiguous)
         {
             Assert(enmType == RTR0MEMOBJTYPE_PHYS);
-            pMemNetBSD->Core.u.Phys.PhysBase = VM_PAGE_TO_PHYS(vm_page_find_least(pMemNetBSD->pObject, 0));
+            pMemNetBSD->Core.u.Phys.PhysBase = rc;
             pMemNetBSD->Core.u.Phys.fAllocated = true;
         }
         *ppMem = &pMemNetBSD->Core;
@@ -304,7 +256,7 @@ static int rtR0MemObjNetBSDAllocPhysPages(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ
         rtR0MemObjDelete(&pMemNetBSD->Core);
     }
 
-    return rc;
+    return VINF_SUCCESS;
 }
 
 
@@ -378,7 +330,7 @@ DECLHIDDEN(int) rtR0MemObjNativeMapUser(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ p
 DECLHIDDEN(int) rtR0MemObjNativeProtect(PRTR0MEMOBJINTERNAL pMem, size_t offSub, size_t cbSub, uint32_t fProt)
 {
     vm_prot_t          ProtectionFlags = 0;
-    vm_offset_t        AddrStart       = (uintptr_t)pMem->pv + offSub;
+    voff_t        AddrStart       = (uintptr_t)pMem->pv + offSub;
     vm_map_t           pVmMap          = rtR0MemObjNetBSDGetMap(pMem);
 
     if (!pVmMap)
@@ -411,7 +363,7 @@ DECLHIDDEN(RTHCPHYS) rtR0MemObjNativeGetPagePhysAddr(PRTR0MEMOBJINTERNAL pMem, s
         case RTR0MEMOBJTYPE_MAPPING:
         case RTR0MEMOBJTYPE_PAGE:
         {
-            return addr;
+            return pMemNetBSD->Core.pv;
         }
 
         case RTR0MEMOBJTYPE_LOW:

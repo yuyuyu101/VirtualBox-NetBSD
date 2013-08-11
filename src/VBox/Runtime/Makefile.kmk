@@ -1985,10 +1985,14 @@ RuntimeR0Drv_SOURCES.netbsd = \
 	generic/RTLogWriteStdOut-stub-generic.cpp \
 	generic/RTTimerCreate-generic.cpp \
 	generic/mppresent-generic.cpp \
+	r0drv/netbsd/alloc-r0drv-netbsd.c \
+	r0drv/netbsd/assert-r0drv-netbsd.c \
 	r0drv/generic/RTMpIsCpuWorkPending-r0drv-generic.cpp \
 	r0drv/generic/mpnotification-r0drv-generic.cpp \
 	r0drv/netbsd/semevent-r0drv-netbsd.c \
+	r0drv/netbsd/initterm-r0drv-netbsd.c \
 	r0drv/netbsd/semeventmulti-r0drv-netbsd.c \
+	r0drv/netbsd/semfastmutex-r0drv-netbsd.c \
 	r0drv/netbsd/memobj-r0drv-netbsd.c \
 	r0drv/netbsd/spinlock-r0drv-netbsd.c \
 	r0drv/netbsd/thread-r0drv-netbsd.c \
@@ -1998,12 +2002,8 @@ RuntimeR0Drv_SOURCES.netbsd = \
 	r0drv/memobj-r0drv.cpp \
 	r0drv/powernotification-r0drv.c
 #	r0drv/netbsd/mp-r0drv-netbsd.c \
-#	r0drv/netbsd/alloc-r0drv-netbsd.c \
-#	r0drv/netbsd/assert-r0drv-netbsd.c \
-#	r0drv/netbsd/initterm-r0drv-netbsd.c \
 #	r0drv/netbsd/memuserkernel-r0drv-netbsd.c \
 #	r0drv/netbsd/process-r0drv-netbsd.c \
-#	r0drv/netbsd/semfastmutex-r0drv-netbsd.c \
 #	r0drv/netbsd/semmutex-r0drv-netbsd.c \
 
 

@@ -98,7 +98,7 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
         case RTR0MEMOBJTYPE_PHYS:
         case RTR0MEMOBJTYPE_PHYS_NC:
         {
-            uvm_pglistfree(pMem->pglist);
+            uvm_pglistfree(&pMemNetBSD->pglist);
             break;
         }
 
@@ -215,7 +215,7 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocCont(PPRTR0MEMOBJINTERNAL ppMem, size_t cb,
         return VERR_NO_MEMORY;
     }
 
-    pMemNetBSD->Core.u.Cont.Phys = pMemNetBSD->Core.pv;
+    pMemNetBSD->Core.u.Cont.Phys = (void *)pMemNetBSD->Core.pv;
     *ppMem = &pMemNetBSD->Core;
     return VINF_SUCCESS;
 }
@@ -330,7 +330,7 @@ DECLHIDDEN(int) rtR0MemObjNativeMapUser(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ p
 DECLHIDDEN(int) rtR0MemObjNativeProtect(PRTR0MEMOBJINTERNAL pMem, size_t offSub, size_t cbSub, uint32_t fProt)
 {
     vm_prot_t          ProtectionFlags = 0;
-    voff_t        AddrStart       = (uintptr_t)pMem->pv + offSub;
+    uintptr_t        AddrStart       = (uintptr_t)pMem->pv + offSub;
     vm_map_t           pVmMap          = rtR0MemObjNetBSDGetMap(pMem);
 
     if (!pVmMap)
@@ -345,7 +345,7 @@ DECLHIDDEN(int) rtR0MemObjNativeProtect(PRTR0MEMOBJINTERNAL pMem, size_t offSub,
     if ((fProt & RTMEM_PROT_EXEC) == RTMEM_PROT_EXEC)
         ProtectionFlags |= VM_PROT_EXECUTE;
 
-    int error = uvm_vslock(pVmMap, AddrStart, cbSub, ProtectionFlags);
+    int error = uvm_vslock(curproc->p_vmspace, (void *)AddrStart, cbSub, ProtectionFlags);
     if (!error)
         return VINF_SUCCESS;
 
@@ -363,7 +363,7 @@ DECLHIDDEN(RTHCPHYS) rtR0MemObjNativeGetPagePhysAddr(PRTR0MEMOBJINTERNAL pMem, s
         case RTR0MEMOBJTYPE_MAPPING:
         case RTR0MEMOBJTYPE_PAGE:
         {
-            return pMemNetBSD->Core.pv;
+            return (void*)(pMemNetBSD->Core.pv);
         }
 
         case RTR0MEMOBJTYPE_LOW:

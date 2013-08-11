@@ -26,8 +26,10 @@
 #include <sys/conf.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
+#include <sys/device.h>
 #include <sys/bus.h>
 #include <sys/poll.h>
+#include <sys/stat.h>
 #include <sys/selinfo.h>
 #include <sys/queue.h>
 #include <sys/lock.h>
@@ -36,6 +38,7 @@
 #include <sys/malloc.h>
 #include <sys/uio.h>
 #include <sys/file.h>
+#include <sys/vfs_syscalls.h>
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcidevs.h>
@@ -125,6 +128,7 @@ static struct selinfo       g_SelInfo;
 /** Reference counter */
 static volatile uint32_t    cUsers;
 
+CFDRIVER_DECL(vboxguest, DV_DULL, NULL);
 extern struct cfdriver vboxguest_cd;
 
 /**
@@ -139,10 +143,14 @@ static int VBoxGuestNetBSDOpen(dev_t device, int flags, int fmt, struct lwp *pro
 
     LogFlow((DEVICE_NAME ":VBoxGuestNetBSDOpen\n"));
 
-    if ((vboxguest = device_lookup_private(&vboxguest_cd, minor(device))) == NULL)
+    if ((vboxguest = device_lookup_private(&vboxguest_cd, minor(device))) == NULL) {
+        printf("device_lookup_private failed");
         return (ENXIO);
-    if ((vboxguest->vboxguest_state & VBOXGUEST_STATE_INITOK) == 0)
+    }
+    if ((vboxguest->vboxguest_state & VBOXGUEST_STATE_INITOK) == 0) {
+        printf("VBOXGUEST_STATE_INITOK failed");
         return (ENXIO);
+    }
     if ((vboxguest->vboxguest_state & VBOXGUEST_STATE_OPEN) != 0)
         return (EBUSY);
     /*
@@ -414,6 +422,7 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
 
     cUsers = 0;
 
+    printf("Start to attach VBoxGuest");
     /*
      * Initialize IPRT R0 driver, which internally calls OS-specific r0 init.
      */
@@ -488,23 +497,72 @@ CFATTACH_DECL_NEW(vboxguest, sizeof(vboxguest_softc),
 
 MODULE(MODULE_CLASS_DRIVER, vboxguest, NULL);
 
+static struct cfdata vboxguest_cfdata[] = {
+        {
+                .cf_name = "vboxguest",
+                .cf_atname = "vboxguest",
+                .cf_unit = 0,           /* Only unit 0 is ever used  */
+                .cf_fstate = FSTATE_NOTFOUND,
+                .cf_loc = NULL,
+                .cf_flags = 0,
+                .cf_pspec = NULL,
+        },
+        { NULL, NULL, 0, 0, NULL, 0, NULL }
+};
+
 static int
 vboxguest_modcmd(modcmd_t cmd, void *opaque)
 {
+    devmajor_t bmajor, cmajor;
+    int error;
+    register_t retval;
+
+    bmajor = cmajor = NODEVMAJOR;
     switch (cmd) {
-#ifdef _MODULE
         case MODULE_CMD_INIT:
-                return config_init_component(cfdriver_ioconf_vboxguest,
-                    cfattach_ioconf_vboxguest, cfdata_ioconf_vboxguest);
+                error = config_cfdriver_attach(&vboxguest_cd);
+                if (error) {
+                    printf("config_cfdriver_attach failed: %d", error);
+                    break;
+                }
+                error = config_cfattach_attach(vboxguest_cd.cd_name, &vboxguest_ca);
+                if (error) {
+                    config_cfdriver_detach(&vboxguest_cd);
+                    printf("%s: unable to register cfattach\n", vboxguest_cd.cd_name);
+                    break;
+                }
+
+                error = config_cfdata_attach(vboxguest_cfdata, 1);
+                if (error) {
+                        printf("%s: unable to attach cfdata\n", vboxguest_cd.cd_name);
+                        config_cfattach_detach(vboxguest_cd.cd_name, &vboxguest_ca);
+                        config_cfdriver_detach(&vboxguest_cd);
+                        break;
+                }
+
+                error = devsw_attach("vboxguest", NULL, &bmajor, &g_VBoxGuestNetBSDChrDevSW, &cmajor);
+                
+                if (error == EEXIST)
+                        error = 0; /* maybe built-in ... improve eventually */
+                if (error)
+                        break;
+
+                if (config_attach_pseudo(vboxguest_cfdata) == NULL) {
+                        printf("%s: config_attach_pseudo failed\n", vboxguest_cd.cd_name);
+                        config_cfattach_detach(vboxguest_cd.cd_name, &vboxguest_ca);
+                        config_cfdriver_detach(&vboxguest_cd);
+                        return ENXIO;
+                }
+
+                error = do_sys_mknod(curlwp, "/dev/vboxguest", 0666|S_IFCHR, makedev(cmajor, 0), &retval, UIO_SYSSPACE);
+                if (error == EEXIST)
+                        error = 0; /* maybe built-in ... improve eventually */
+                break;
         case MODULE_CMD_FINI:
-                return config_fini_component(cfdriver_ioconf_vboxguest,
-                    cfattach_ioconf_vboxguest, cfdata_ioconf_vboxguest);
-#else
-        case MODULE_CMD_INIT:
-        case MODULE_CMD_FINI:
-                return 0;
-#endif
+                error = devsw_detach(NULL, &g_VBoxGuestNetBSDChrDevSW);
+                break;
         default:
                 return ENOTTY;
     }
+    return error;
 }

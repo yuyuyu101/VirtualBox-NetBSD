@@ -79,7 +79,7 @@ RTR0DECL(void *) RTMemContAlloc(PRTCCPHYS pPhys, size_t cb)
     /*
      * Get the physical address from the first page.
      */
-    const paddr_t pa = VM_PAGE_TO_PHYS(pg);
+    const paddr_t pa = VM_PAGE_TO_PHYS(page);
     *pPhys = pa;
 
     /*

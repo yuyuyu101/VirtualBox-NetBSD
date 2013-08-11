@@ -53,7 +53,7 @@ typedef struct RTSEMFASTMUTEXINTERNAL
     /** Magic value (RTSEMFASTMUTEX_MAGIC). */
     uint32_t            u32Magic;
     /** The NetBSD shared/exclusive lock mutex. */
-    struct sx           SxLock;
+    krwlock_t           Mtx;
 } RTSEMFASTMUTEXINTERNAL, *PRTSEMFASTMUTEXINTERNAL;
 
 
@@ -66,7 +66,7 @@ RTDECL(int)  RTSemFastMutexCreate(PRTSEMFASTMUTEX phFastMtx)
     if (pThis)
     {
         pThis->u32Magic = RTSEMFASTMUTEX_MAGIC;
-        sx_init_flags(&pThis->SxLock, "IPRT Fast Mutex Semaphore", SX_DUPOK);
+        rw_init(&pThis->Mtx);
 
         *phFastMtx = pThis;
         return VINF_SUCCESS;
@@ -84,7 +84,7 @@ RTDECL(int)  RTSemFastMutexDestroy(RTSEMFASTMUTEX hFastMtx)
     AssertMsgReturn(pThis->u32Magic == RTSEMFASTMUTEX_MAGIC, ("%p: u32Magic=%RX32\n", pThis, pThis->u32Magic), VERR_INVALID_HANDLE);
 
     ASMAtomicWriteU32(&pThis->u32Magic, RTSEMFASTMUTEX_MAGIC_DEAD);
-    sx_destroy(&pThis->SxLock);
+    rw_destroy(&pThis->Mtx);
     RTMemFree(pThis);
 
     return VINF_SUCCESS;
@@ -97,7 +97,7 @@ RTDECL(int)  RTSemFastMutexRequest(RTSEMFASTMUTEX hFastMtx)
     AssertPtrReturn(pThis, VERR_INVALID_HANDLE);
     AssertMsgReturn(pThis->u32Magic == RTSEMFASTMUTEX_MAGIC, ("%p: u32Magic=%RX32\n", pThis, pThis->u32Magic), VERR_INVALID_HANDLE);
 
-    sx_xlock(&pThis->SxLock);
+    rw_enter(&pThis->Mtx, RW_WRITER);
     return VINF_SUCCESS;
 }
 
@@ -108,7 +108,7 @@ RTDECL(int)  RTSemFastMutexRelease(RTSEMFASTMUTEX hFastMtx)
     AssertPtrReturn(pThis, VERR_INVALID_HANDLE);
     AssertMsgReturn(pThis->u32Magic == RTSEMFASTMUTEX_MAGIC, ("%p: u32Magic=%RX32\n", pThis, pThis->u32Magic), VERR_INVALID_HANDLE);
 
-    sx_xunlock(&pThis->SxLock);
+    rw_exit(&pThis->Mtx);
     return VINF_SUCCESS;
 }
 

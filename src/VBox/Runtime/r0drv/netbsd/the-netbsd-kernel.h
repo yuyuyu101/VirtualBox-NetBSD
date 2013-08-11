@@ -52,6 +52,7 @@
 #include <sys/mutex.h>
 #include <sys/sched.h>
 #include <sys/callout.h>
+#include <sys/rwlock.h>
 #include <sys/kmem.h>
 #include <sys/cpu.h>
 #include <sys/vmmeter.h>        /* cnt */
@@ -64,7 +65,7 @@
 /**
  * Wrappers around the sleepq_ KPI.
  */
-# define SLEEPQ_TIMEDWAIT(EventInt) sleepq_timedwait(EventInt)
+# define rtR0SemBsdWaitPrepareSLEEPQ_TIMEDWAIT(EventInt) sleepq_timedwait(EventInt)
 # define SLEEPQ_TIMEDWAIT_SIG(EventInt) sleepq_timedwait_sig(EventInt)
 # define SLEEPQ_WAIT(EventInt) sleepq_wait(EventInt)
 # define SLEEPQ_WAIT_SIG(EventInt) sleepq_wait_sig(EventInt)

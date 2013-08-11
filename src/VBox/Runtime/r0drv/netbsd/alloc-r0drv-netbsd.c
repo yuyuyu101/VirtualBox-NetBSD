@@ -50,3 +50,41 @@ DECLHIDDEN(void) rtR0MemFree(PRTMEMHDR pHdr)
 
     free(pHdr, M_IPRTHEAP);
 }
+
+RTR0DECL(void) RTMemContFree(void *pv, size_t cb)
+{
+    if (pv)
+    {
+        AssertMsg(!((uintptr_t)pv & PAGE_OFFSET_MASK), ("pv=%p\n", pv));
+
+    }
+}
+
+RTR0DECL(void *) RTMemContAlloc(PRTCCPHYS pPhys, size_t cb)
+{
+    /*
+     * Validate input.
+     */
+    AssertPtr(pPhys);
+    Assert(cb > 0);
+
+    size_t cPages = atop(cb);
+    int error;
+    struct uvm_object *vm;
+    struct vm_page *page;
+
+    vm = uao_create(cb, 0);
+    page = uvm_pagealloc(vm, 0, NULL, 0);
+
+    /*
+     * Get the physical address from the first page.
+     */
+    const paddr_t pa = VM_PAGE_TO_PHYS(pg);
+    *pPhys = pa;
+
+    /*
+     * We need to return a direct-mapped VA for the pa.
+     */
+    return (void*)pa;
+
+}

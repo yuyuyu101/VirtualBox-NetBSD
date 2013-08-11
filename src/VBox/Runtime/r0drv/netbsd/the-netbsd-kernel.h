@@ -45,6 +45,7 @@
 #include <sys/malloc.h>
 #include <sys/proc.h>
 #include <sys/syslimits.h>
+#include <sys/sleepq.h>
 #include <sys/unistd.h>
 #include <sys/kthread.h>
 #include <sys/lock.h>

@@ -32,7 +32,6 @@
 
 #include <iprt/asm-math.h>
 #include <iprt/err.h>
-#include <iprt/string.h>
 #include <iprt/time.h>
 
 static syncobj_t vbox_syncobj = {
@@ -174,7 +173,6 @@ DECLINLINE(int) rtR0SemBsdWaitInit(PRTR0SEMBSDSLEEP pWait, uint32_t fFlags, uint
      */
     pWait->fInterruptible = fFlags & RTSEMWAIT_FLAGS_INTERRUPTIBLE
                             ? true : false;
-    pWait->pvWaitChan     = pvWaitChan;
     pWait->fInterrupted   = false;
     pWait->sc_lock = mutex_obj_alloc(MUTEX_DEFAULT, IPL_SCHED);
     sleepq_init(&pWait->sleepq);
@@ -193,7 +191,7 @@ DECLINLINE(int) rtR0SemBsdWaitInit(PRTR0SEMBSDSLEEP pWait, uint32_t fFlags, uint
 DECLINLINE(void) rtR0SemBsdWaitPrepare(PRTR0SEMBSDSLEEP pWait)
 {
     /* Lock the queues. */
-    sleepq_enter(&pWait->sleepq, pWait, pWait->lock);
+    sleepq_enter(&pWait->sleepq, curlwp, pWait->sc_lock);
 }
 
 /**
@@ -203,8 +201,6 @@ DECLINLINE(void) rtR0SemBsdWaitPrepare(PRTR0SEMBSDSLEEP pWait)
  */
 DECLINLINE(void) rtR0SemBsdWaitDoIt(PRTR0SEMBSDSLEEP pWait)
 {
-    int rcBsd;
-    int fSleepqFlags = SLEEPQ_CONDVAR;
 
     sleepq_enqueue(&pWait->sleepq, pWait, "VBoxIS", &vbox_syncobj);
 

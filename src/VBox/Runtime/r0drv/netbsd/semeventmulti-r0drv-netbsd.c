@@ -32,7 +32,7 @@
 *   Header Files                                                               *
 *******************************************************************************/
 #define RTSEMEVENTMULTI_WITHOUT_REMAPPING
-#include "the-freebsd-kernel.h"
+#include "the-netbsd-kernel.h"
 #include "internal/iprt.h"
 #include <iprt/semaphore.h>
 
@@ -42,7 +42,7 @@
 #include <iprt/mem.h>
 #include <iprt/lockvalidator.h>
 
-#include "sleepqueue-r0drv-freebsd.h"
+#include "sleepqueue-r0drv-netbsd.h"
 #include "internal/magics.h"
 
 

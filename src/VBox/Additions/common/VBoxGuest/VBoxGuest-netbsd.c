@@ -127,9 +127,6 @@ static volatile uint32_t    cUsers;
 
 extern struct cfdriver vboxguest_cd;
 
-CFATTACH_DECL_NEW(vboxguest, sizeof(vboxguest_softc),
-    NULL, VBoxGuestNetBSDAttach, VBoxGuestNetBSDDetach, NULL);
-
 /**
  * File open handler
  *
@@ -384,7 +381,7 @@ static int VBoxGuestNetBSDAddIRQ(device_t pDevice, void *pvState)
         printf("couldn't establish interrupt");
         return VERR_DEV_IO_ERROR;
     }
-    
+
     return VINF_SUCCESS;
 }
 
@@ -434,10 +431,10 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
      * Allocate I/O port resource.
      */
     ioh_valid = (pci_mapreg_map(pa, PCI_MAPREG_START, PCI_MAPREG_TYPE_IO, 0, &vboxguest->io_tag, &vboxguest->io_handle, &vboxguest->uIOPortBase, &vboxguest->io_regsize) == 0);
-    
+
     if (!ioh_valid)
     {
-        
+
         /*
          * Map the MMIO region.
          */
@@ -486,21 +483,27 @@ static void VBoxGuestNetBSDAttach(device_t parent, device_t self, void *aux)
 /* Common code that depend on g_DevExt. */
 #include "VBoxGuestIDC-unix.c.h"
 
-MODULE(MODULE_CLASS_DRIVER, vboxguest, NULL);
+CFATTACH_DECL_NEW(vboxguest, sizeof(vboxguest_softc),
+    NULL, VBoxGuestNetBSDAttach, VBoxGuestNetBSDDetach, NULL);
+
+MODULE(MODULE_CLASS_DRIVER, vboxguest, "vboxguest");
 
 static int
 vboxguest_modcmd(modcmd_t cmd, void *opaque)
 {
-    devmajor_t bmajor, cmajor;
-    int error;
-
-    bmajor = cmajor = NODEVMAJOR;
-
     switch (cmd) {
+#ifdef _MODULE
         case MODULE_CMD_INIT:
-            return 0;
+                return config_init_component(cfdriver_ioconf_vboxguest,
+                    cfattach_ioconf_vboxguest, cfdata_ioconf_vboxguest);
         case MODULE_CMD_FINI:
-	    return 0;
+                return config_fini_component(cfdriver_ioconf_vboxguest,
+                    cfattach_ioconf_vboxguest, cfdata_ioconf_vboxguest);
+#else
+        case MODULE_CMD_INIT:
+        case MODULE_CMD_FINI:
+                return 0;
+#endif
         default:
                 return ENOTTY;
     }

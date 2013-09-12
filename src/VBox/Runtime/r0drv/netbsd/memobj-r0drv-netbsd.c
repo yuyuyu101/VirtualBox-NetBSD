@@ -28,8 +28,7 @@ typedef struct RTR0MEMOBJNETBSD
 {
     /** The core structure. */
     RTR0MEMOBJINTERNAL  Core;
-    /** The VM object associated with the allocation. */
-    vm_object_t         pObject;
+    int                 is_uvm;
 } RTR0MEMOBJNETBSD, *PRTR0MEMOBJNETBSD;
 
 
@@ -159,106 +158,53 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
 }
 
 
-static vm_page_t rtR0MemObjNetBSDContigPhysAllocHelper(vm_object_t pObject, vm_pindex_t iPIndex,
-                                                        u_long cPages, vm_paddr_t VmPhysAddrHigh,
-                                                        u_long uAlignment, bool fWire)
+void *rtR0MemObjNetBSDContigPhysAllocHelper(size_t cPages, paddr_t VmPhysAddrHigh)
 {
-    vm_page_t pPages;
-    int cTries = 0;
+    struct pglist pglist;
+    int error;
 
-    int fFlags = VM_ALLOC_INTERRUPT | VM_ALLOC_NOBUSY;
-    if (fWire)
-        fFlags |= VM_ALLOC_WIRED;
+    error = uvm_pglistalloc(cPages * PAGE_SIZE, 0, VmPhysAddrHigh, PAGE_SIZE, 0, &pglist, 1, 1);
+    if (error)
+        return NULL;
 
-    while (cTries <= 1)
-    {
-        VM_OBJECT_LOCK(pObject);
-        pPages = vm_page_alloc_contig(pObject, iPIndex, fFlags, cPages, 0,
-                                      VmPhysAddrHigh, uAlignment, 0, VM_MEMATTR_DEFAULT);
-        VM_OBJECT_UNLOCK(pObject);
-        if (pPages)
-            break;
-        vm_pageout_grow_cache(cTries, 0, VmPhysAddrHigh);
-        cTries++;
-    }
+    /*
+     * Get the physical address from the first page.
+     */
+    const struct vm_page * const pg = TAILQ_FIRST(&pglist);
+    KASSERT(pg != NULL);
+    const paddr_t pa = VM_PAGE_TO_PHYS(pg);
 
-    return pPages;
+    /*
+     * We need to return a direct-mapped VA for the pa.
+     */
+    return (void *)PMAP_MAP_POOLPAGE(pa);
 }
 
-static int rtR0MemObjNetBSDPhysAllocHelper(vm_object_t pObject, u_long cPages,
-                                            vm_paddr_t VmPhysAddrHigh, u_long uAlignment,
-                                            bool fContiguous, bool fWire, int rcNoMem)
+static void *rtR0MemObjNetBSDPhysAllocHelper(size_t cPages, paddr_t VmPhysAddrHigh, bool fContiguous, int rcNoMem)
 {
-    if (fContiguous)
+    //if (fContiguous)
     {
-        if (rtR0MemObjNetBSDContigPhysAllocHelper(pObject, 0, cPages, VmPhysAddrHigh,
-                                                   uAlignment, fWire) != NULL)
-            return VINF_SUCCESS;
+        void *mem = rtR0MemObjNetBSDContigPhysAllocHelper(cPages, VmPhysAddrHigh)
+        if (mem)
+            return mem;
         return rcNoMem;
     }
-
-    for (vm_pindex_t iPage = 0; iPage < cPages; iPage++)
-    {
-        vm_page_t pPage = rtR0MemObjNetBSDContigPhysAllocHelper(pObject, iPage, 1, VmPhysAddrHigh,
-                                                                 uAlignment, fWire);
-        if (!pPage)
-        {
-            /* Free all allocated pages */
-            VM_OBJECT_LOCK(pObject);
-            while (iPage-- > 0)
-            {
-                pPage = vm_page_lookup(pObject, iPage);
-                vm_page_lock_queues();
-                if (fWire)
-                    vm_page_unwire(pPage, 0);
-                vm_page_free(pPage);
-                vm_page_unlock_queues();
-            }
-            VM_OBJECT_UNLOCK(pObject);
-            return rcNoMem;
-        }
-    }
-    return VINF_SUCCESS;
 }
 
 static int rtR0MemObjNetBSDAllocHelper(PRTR0MEMOBJNETBSD pMemNetBSD, bool fExecutable,
                                         vm_paddr_t VmPhysAddrHigh, bool fContiguous, int rcNoMem)
 {
-    vm_offset_t MapAddress = vm_map_min(kernel_map);
     size_t      cPages = atop(pMemNetBSD->Core.cb);
-    int         rc;
+    void        *rc;
 
-    pMemNetBSD->pObject = vm_object_allocate(OBJT_PHYS, cPages);
-
-    /* No additional object reference for auto-deallocation upon unmapping. */
-    rc = vm_map_find(kernel_map, pMemNetBSD->pObject, 0,
-                     &MapAddress, pMemNetBSD->Core.cb, VMFS_ANY_SPACE,
-                     fExecutable ? VM_PROT_ALL : VM_PROT_RW, VM_PROT_ALL, 0);
-
-    if (rc == KERN_SUCCESS)
+    rc = rtR0MemObjNetBSDPhysAllocHelper(cPages, VmPhysAddrHigh, fContiguous, rcNoMem);
+    if (rc)
     {
-        rc = rtR0MemObjNetBSDPhysAllocHelper(pMemNetBSD->pObject, cPages,
-                                              VmPhysAddrHigh, PAGE_SIZE, fContiguous,
-                                              false, rcNoMem);
-        if (RT_SUCCESS(rc))
-        {
-            vm_map_wire(kernel_map, MapAddress, MapAddress + pMemNetBSD->Core.cb,
-                        VM_MAP_WIRE_SYSTEM | VM_MAP_WIRE_NOHOLES);
-
-            /* Store start address */
-            pMemNetBSD->Core.pv = (void *)MapAddress;
-            return VINF_SUCCESS;
-        }
-
-        vm_map_remove(kernel_map, MapAddress, MapAddress + pMemNetBSD->Core.cb);
+        /* Store start address */
+        pMemNetBSD->Core.pv = rc;
+        pMemNetBSD->is_uvm = 1;
+        return VINF_SUCCESS;
     }
-    else
-    {
-        rc = rcNoMem; /** @todo fix translation (borrow from darwin) */
-        vm_object_deallocate(pMemNetBSD->pObject);
-    }
-
-    rtR0MemObjDelete(&pMemNetBSD->Core);
     return rc;
 }
 
@@ -277,7 +223,7 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocPage(PPRTR0MEMOBJINTERNAL ppMem, size_t cb,
     }
 
     pMemNetBSD->Core.pv = pvMem;
-    pMemNetBSD->pvHandle = NULL;
+    pMemNetBSD->is_uvm = 0;
     *ppMem = &pMemNetBSD->Core;
     return VINF_SUCCESS;
 }
@@ -316,7 +262,7 @@ DECLHIDDEN(int) rtR0MemObjNativeAllocCont(PPRTR0MEMOBJINTERNAL ppMem, size_t cb,
         return rc;
     }
 
-    pMemNetBSD->Core.u.Cont.Phys = vtophys(pMemNetBSD->Core.pv);
+    pMemNetBSD->Core.u.Cont.Phys = pMemNetBSD->Core.pv;
     *ppMem = &pMemNetBSD->Core;
     return rc;
 }
@@ -328,7 +274,7 @@ static int rtR0MemObjNetBSDAllocPhysPages(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ
                                            bool fContiguous, int rcNoMem)
 {
     uint32_t   cPages = atop(cb);
-    vm_paddr_t VmPhysAddrHigh;
+    paddr_t VmPhysAddrHigh;
 
     /* create the object. */
     PRTR0MEMOBJNETBSD pMemNetBSD = (PRTR0MEMOBJNETBSD)rtR0MemObjNew(sizeof(*pMemNetBSD),
@@ -336,31 +282,24 @@ static int rtR0MemObjNetBSDAllocPhysPages(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ
     if (!pMemNetBSD)
         return VERR_NO_MEMORY;
 
-    pMemNetBSD->pObject = vm_object_allocate(OBJT_PHYS, atop(cb));
-
     if (PhysHighest != NIL_RTHCPHYS)
         VmPhysAddrHigh = PhysHighest;
     else
-        VmPhysAddrHigh = ~(vm_paddr_t)0;
+        VmPhysAddrHigh = ~(paddr_t)0;
 
-    int rc = rtR0MemObjNetBSDPhysAllocHelper(pMemNetBSD->pObject, cPages, VmPhysAddrHigh,
-                                              uAlignment, fContiguous, true, rcNoMem);
+    int rc = rtR0MemObjNetBSDPhysAllocHelper(cPages, VmPhysAddrHigh, fContiguous, rcNoMem);
     if (RT_SUCCESS(rc))
     {
         if (fContiguous)
         {
             Assert(enmType == RTR0MEMOBJTYPE_PHYS);
-            VM_OBJECT_LOCK(pMemNetBSD->pObject);
             pMemNetBSD->Core.u.Phys.PhysBase = VM_PAGE_TO_PHYS(vm_page_find_least(pMemNetBSD->pObject, 0));
-            VM_OBJECT_UNLOCK(pMemNetBSD->pObject);
             pMemNetBSD->Core.u.Phys.fAllocated = true;
         }
-
         *ppMem = &pMemNetBSD->Core;
     }
     else
     {
-        vm_object_deallocate(pMemNetBSD->pObject);
         rtR0MemObjDelete(&pMemNetBSD->Core);
     }
 
@@ -398,296 +337,40 @@ DECLHIDDEN(int) rtR0MemObjNativeEnterPhys(PPRTR0MEMOBJINTERNAL ppMem, RTHCPHYS P
 }
 
 
-/**
- * Worker locking the memory in either kernel or user maps.
- */
-static int rtR0MemObjNativeLockInMap(PPRTR0MEMOBJINTERNAL ppMem, vm_map_t pVmMap,
-                                     vm_offset_t AddrStart, size_t cb, uint32_t fAccess,
-                                     RTR0PROCESS R0Process, int fFlags)
-{
-    int rc;
-    NOREF(fAccess);
-
-    /* create the object. */
-    PRTR0MEMOBJNETBSD pMemNetBSD = (PRTR0MEMOBJNETBSD)rtR0MemObjNew(sizeof(*pMemNetBSD), RTR0MEMOBJTYPE_LOCK, (void *)AddrStart, cb);
-    if (!pMemNetBSD)
-        return VERR_NO_MEMORY;
-
-    /*
-     * We could've used vslock here, but we don't wish to be subject to
-     * resource usage restrictions, so we'll call vm_map_wire directly.
-     */
-    rc = vm_map_wire(pVmMap,                                         /* the map */
-                     AddrStart,                                      /* start */
-                     AddrStart + cb,                                 /* end */
-                     fFlags);                                        /* flags */
-    if (rc == KERN_SUCCESS)
-    {
-        pMemNetBSD->Core.u.Lock.R0Process = R0Process;
-        *ppMem = &pMemNetBSD->Core;
-        return VINF_SUCCESS;
-    }
-    rtR0MemObjDelete(&pMemNetBSD->Core);
-    return VERR_NO_MEMORY;/** @todo fix mach -> vbox error conversion for freebsd. */
-}
-
-
 DECLHIDDEN(int) rtR0MemObjNativeLockUser(PPRTR0MEMOBJINTERNAL ppMem, RTR3PTR R3Ptr, size_t cb, uint32_t fAccess, RTR0PROCESS R0Process)
 {
-    return rtR0MemObjNativeLockInMap(ppMem,
-                                     &((struct proc *)R0Process)->p_vmspace->vm_map,
-                                     (vm_offset_t)R3Ptr,
-                                     cb,
-                                     fAccess,
-                                     R0Process,
-                                     VM_MAP_WIRE_USER | VM_MAP_WIRE_NOHOLES);
+    return VERR_NOT_SUPPORTED;
 }
 
 
 DECLHIDDEN(int) rtR0MemObjNativeLockKernel(PPRTR0MEMOBJINTERNAL ppMem, void *pv, size_t cb, uint32_t fAccess)
 {
-    return rtR0MemObjNativeLockInMap(ppMem,
-                                     kernel_map,
-                                     (vm_offset_t)pv,
-                                     cb,
-                                     fAccess,
-                                     NIL_RTR0PROCESS,
-                                     VM_MAP_WIRE_SYSTEM | VM_MAP_WIRE_NOHOLES);
+    return VERR_NOT_SUPPORTED;
 }
-
-
-/**
- * Worker for the two virtual address space reservers.
- *
- * We're leaning on the examples provided by mmap and vm_mmap in vm_mmap.c here.
- */
-static int rtR0MemObjNativeReserveInMap(PPRTR0MEMOBJINTERNAL ppMem, void *pvFixed, size_t cb, size_t uAlignment, RTR0PROCESS R0Process, vm_map_t pMap)
-{
-    int rc;
-
-    /*
-     * The pvFixed address range must be within the VM space when specified.
-     */
-    if (   pvFixed != (void *)-1
-        && (    (vm_offset_t)pvFixed      < vm_map_min(pMap)
-            ||  (vm_offset_t)pvFixed + cb > vm_map_max(pMap)))
-        return VERR_INVALID_PARAMETER;
-
-    /*
-     * Check that the specified alignment is supported.
-     */
-    if (uAlignment > PAGE_SIZE)
-        return VERR_NOT_SUPPORTED;
-
-    /*
-     * Create the object.
-     */
-    PRTR0MEMOBJNETBSD pMemNetBSD = (PRTR0MEMOBJNETBSD)rtR0MemObjNew(sizeof(*pMemNetBSD), RTR0MEMOBJTYPE_RES_VIRT, NULL, cb);
-    if (!pMemNetBSD)
-        return VERR_NO_MEMORY;
-
-    vm_offset_t MapAddress = pvFixed != (void *)-1
-                           ? (vm_offset_t)pvFixed
-                           : vm_map_min(pMap);
-    if (pvFixed != (void *)-1)
-        vm_map_remove(pMap,
-                      MapAddress,
-                      MapAddress + cb);
-
-    rc = vm_map_find(pMap,                          /* map */
-                     NULL,                          /* object */
-                     0,                             /* offset */
-                     &MapAddress,                   /* addr (IN/OUT) */
-                     cb,                            /* length */
-                     pvFixed == (void *)-1 ? VMFS_ANY_SPACE : VMFS_NO_SPACE,
-                                                    /* find_space */
-                     VM_PROT_NONE,                  /* protection */
-                     VM_PROT_ALL,                   /* max(_prot) ?? */
-                     0);                            /* cow (copy-on-write) */
-    if (rc == KERN_SUCCESS)
-    {
-        if (R0Process != NIL_RTR0PROCESS)
-        {
-            rc = vm_map_inherit(pMap,
-                                MapAddress,
-                                MapAddress + cb,
-                                VM_INHERIT_SHARE);
-            AssertMsg(rc == KERN_SUCCESS, ("%#x\n", rc));
-        }
-        pMemNetBSD->Core.pv = (void *)MapAddress;
-        pMemNetBSD->Core.u.ResVirt.R0Process = R0Process;
-        *ppMem = &pMemNetBSD->Core;
-        return VINF_SUCCESS;
-    }
-
-    rc = VERR_NO_MEMORY; /** @todo fix translation (borrow from darwin) */
-    rtR0MemObjDelete(&pMemNetBSD->Core);
-    return rc;
-
-}
-
 
 DECLHIDDEN(int) rtR0MemObjNativeReserveKernel(PPRTR0MEMOBJINTERNAL ppMem, void *pvFixed, size_t cb, size_t uAlignment)
 {
-    return rtR0MemObjNativeReserveInMap(ppMem, pvFixed, cb, uAlignment, NIL_RTR0PROCESS, kernel_map);
+    return VERR_NOT_SUPPORTED;
 }
 
 
 DECLHIDDEN(int) rtR0MemObjNativeReserveUser(PPRTR0MEMOBJINTERNAL ppMem, RTR3PTR R3PtrFixed, size_t cb, size_t uAlignment, RTR0PROCESS R0Process)
 {
-    return rtR0MemObjNativeReserveInMap(ppMem, (void *)R3PtrFixed, cb, uAlignment, R0Process,
-                                        &((struct proc *)R0Process)->p_vmspace->vm_map);
+    return VERR_NOT_SUPPORTED;
 }
 
 
 DECLHIDDEN(int) rtR0MemObjNativeMapKernel(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ pMemToMap, void *pvFixed, size_t uAlignment,
                                           unsigned fProt, size_t offSub, size_t cbSub)
 {
-//  AssertMsgReturn(!offSub && !cbSub, ("%#x %#x\n", offSub, cbSub), VERR_NOT_SUPPORTED);
-    AssertMsgReturn(pvFixed == (void *)-1, ("%p\n", pvFixed), VERR_NOT_SUPPORTED);
-
-    /*
-     * Check that the specified alignment is supported.
-     */
-    if (uAlignment > PAGE_SIZE)
-        return VERR_NOT_SUPPORTED;
-
-    int                rc;
-    PRTR0MEMOBJNETBSD pMemToMapNetBSD = (PRTR0MEMOBJNETBSD)pMemToMap;
-
-    /* calc protection */
-    vm_prot_t       ProtectionFlags = 0;
-    if ((fProt & RTMEM_PROT_NONE) == RTMEM_PROT_NONE)
-        ProtectionFlags = VM_PROT_NONE;
-    if ((fProt & RTMEM_PROT_READ) == RTMEM_PROT_READ)
-        ProtectionFlags |= VM_PROT_READ;
-    if ((fProt & RTMEM_PROT_WRITE) == RTMEM_PROT_WRITE)
-        ProtectionFlags |= VM_PROT_WRITE;
-    if ((fProt & RTMEM_PROT_EXEC) == RTMEM_PROT_EXEC)
-        ProtectionFlags |= VM_PROT_EXECUTE;
-
-    vm_offset_t  Addr = vm_map_min(kernel_map);
-    if (cbSub == 0)
-        cbSub = pMemToMap->cb - offSub;
-
-    vm_object_reference(pMemToMapNetBSD->pObject);
-    rc = vm_map_find(kernel_map,            /* Map to insert the object in */
-                     pMemToMapNetBSD->pObject, /* Object to map */
-                     offSub,                /* Start offset in the object */
-                     &Addr,                 /* Start address IN/OUT */
-                     cbSub,                 /* Size of the mapping */
-                     VMFS_ANY_SPACE,        /* Whether a suitable address should be searched for first */
-                     ProtectionFlags,       /* protection flags */
-                     VM_PROT_ALL,           /* Maximum protection flags */
-                     0);                    /* copy-on-write and similar flags */
-
-    if (rc == KERN_SUCCESS)
-    {
-        rc = vm_map_wire(kernel_map, Addr, Addr + cbSub, VM_MAP_WIRE_SYSTEM|VM_MAP_WIRE_NOHOLES);
-        AssertMsg(rc == KERN_SUCCESS, ("%#x\n", rc));
-
-        PRTR0MEMOBJNETBSD pMemNetBSD = (PRTR0MEMOBJNETBSD)rtR0MemObjNew(sizeof(RTR0MEMOBJNETBSD),
-                                                                           RTR0MEMOBJTYPE_MAPPING,
-                                                                           (void *)Addr,
-                                                                           cbSub);
-        if (pMemNetBSD)
-        {
-            Assert((vm_offset_t)pMemNetBSD->Core.pv == Addr);
-            pMemNetBSD->Core.u.Mapping.R0Process = NIL_RTR0PROCESS;
-            *ppMem = &pMemNetBSD->Core;
-            return VINF_SUCCESS;
-        }
-        rc = vm_map_remove(kernel_map, Addr, Addr + cbSub);
-        AssertMsg(rc == KERN_SUCCESS, ("Deleting mapping failed\n"));
-    }
-    else
-        vm_object_deallocate(pMemToMapNetBSD->pObject);
-
-    return VERR_NO_MEMORY;
+    return VERR_NOT_SUPPORTED;
 }
 
 
 DECLHIDDEN(int) rtR0MemObjNativeMapUser(PPRTR0MEMOBJINTERNAL ppMem, RTR0MEMOBJ pMemToMap, RTR3PTR R3PtrFixed, size_t uAlignment,
                                         unsigned fProt, RTR0PROCESS R0Process)
 {
-    /*
-     * Check for unsupported stuff.
-     */
-    AssertMsgReturn(R0Process == RTR0ProcHandleSelf(), ("%p != %p\n", R0Process, RTR0ProcHandleSelf()), VERR_NOT_SUPPORTED);
-    if (uAlignment > PAGE_SIZE)
-        return VERR_NOT_SUPPORTED;
-
-    int                rc;
-    PRTR0MEMOBJNETBSD pMemToMapNetBSD = (PRTR0MEMOBJNETBSD)pMemToMap;
-    struct proc       *pProc            = (struct proc *)R0Process;
-    struct vm_map     *pProcMap         = &pProc->p_vmspace->vm_map;
-
-    /* calc protection */
-    vm_prot_t       ProtectionFlags = 0;
-    if ((fProt & RTMEM_PROT_NONE) == RTMEM_PROT_NONE)
-        ProtectionFlags = VM_PROT_NONE;
-    if ((fProt & RTMEM_PROT_READ) == RTMEM_PROT_READ)
-        ProtectionFlags |= VM_PROT_READ;
-    if ((fProt & RTMEM_PROT_WRITE) == RTMEM_PROT_WRITE)
-        ProtectionFlags |= VM_PROT_WRITE;
-    if ((fProt & RTMEM_PROT_EXEC) == RTMEM_PROT_EXEC)
-        ProtectionFlags |= VM_PROT_EXECUTE;
-
-    /* calc mapping address */
-    vm_offset_t AddrR3;
-    if (R3PtrFixed == (RTR3PTR)-1)
-    {
-        /** @todo: is this needed?. */
-        PROC_LOCK(pProc);
-        AddrR3 = round_page((vm_offset_t)pProc->p_vmspace->vm_daddr + lim_max(pProc, RLIMIT_DATA));
-        PROC_UNLOCK(pProc);
-    }
-    else
-        AddrR3 = (vm_offset_t)R3PtrFixed;
-
-    /* Insert the pObject in the map. */
-    vm_object_reference(pMemToMapNetBSD->pObject);
-    rc = vm_map_find(pProcMap,              /* Map to insert the object in */
-                     pMemToMapNetBSD->pObject, /* Object to map */
-                     0,                     /* Start offset in the object */
-                     &AddrR3,               /* Start address IN/OUT */
-                     pMemToMap->cb,         /* Size of the mapping */
-                     R3PtrFixed == (RTR3PTR)-1 ? VMFS_ANY_SPACE : VMFS_NO_SPACE,
-                                            /* Whether a suitable address should be searched for first */
-                     ProtectionFlags,       /* protection flags */
-                     VM_PROT_ALL,           /* Maximum protection flags */
-                     0);                    /* copy-on-write and similar flags */
-
-    if (rc == KERN_SUCCESS)
-    {
-        rc = vm_map_wire(pProcMap, AddrR3, AddrR3 + pMemToMap->cb, VM_MAP_WIRE_USER|VM_MAP_WIRE_NOHOLES);
-        AssertMsg(rc == KERN_SUCCESS, ("%#x\n", rc));
-
-        rc = vm_map_inherit(pProcMap, AddrR3, AddrR3 + pMemToMap->cb, VM_INHERIT_SHARE);
-        AssertMsg(rc == KERN_SUCCESS, ("%#x\n", rc));
-
-        /*
-         * Create a mapping object for it.
-         */
-        PRTR0MEMOBJNETBSD pMemNetBSD = (PRTR0MEMOBJNETBSD)rtR0MemObjNew(sizeof(RTR0MEMOBJNETBSD),
-                                                                           RTR0MEMOBJTYPE_MAPPING,
-                                                                           (void *)AddrR3,
-                                                                           pMemToMap->cb);
-        if (pMemNetBSD)
-        {
-            Assert((vm_offset_t)pMemNetBSD->Core.pv == AddrR3);
-            pMemNetBSD->Core.u.Mapping.R0Process = R0Process;
-            *ppMem = &pMemNetBSD->Core;
-            return VINF_SUCCESS;
-        }
-
-        rc = vm_map_remove(pProcMap, AddrR3, AddrR3 + pMemToMap->cb);
-        AssertMsg(rc == KERN_SUCCESS, ("Deleting mapping failed\n"));
-    }
-    else
-        vm_object_deallocate(pMemToMapNetBSD->pObject);
-
-    return VERR_NO_MEMORY;
+    return VERR_NOT_SUPPORTED;
 }
 
 
@@ -695,7 +378,6 @@ DECLHIDDEN(int) rtR0MemObjNativeProtect(PRTR0MEMOBJINTERNAL pMem, size_t offSub,
 {
     vm_prot_t          ProtectionFlags = 0;
     vm_offset_t        AddrStart       = (uintptr_t)pMem->pv + offSub;
-    vm_offset_t        AddrEnd         = AddrStart + cbSub;
     vm_map_t           pVmMap          = rtR0MemObjNetBSDGetMap(pMem);
 
     if (!pVmMap)
@@ -710,8 +392,8 @@ DECLHIDDEN(int) rtR0MemObjNativeProtect(PRTR0MEMOBJINTERNAL pMem, size_t offSub,
     if ((fProt & RTMEM_PROT_EXEC) == RTMEM_PROT_EXEC)
         ProtectionFlags |= VM_PROT_EXECUTE;
 
-    int krc = vm_map_protect(pVmMap, AddrStart, AddrEnd, ProtectionFlags, FALSE);
-    if (krc == KERN_SUCCESS)
+    int error = uvm_vslock(pVmMap, AddrStart, cbSub, ProtectionFlags);
+    if (!error)
         return VINF_SUCCESS;
 
     return VERR_NOT_SUPPORTED;
@@ -725,49 +407,14 @@ DECLHIDDEN(RTHCPHYS) rtR0MemObjNativeGetPagePhysAddr(PRTR0MEMOBJINTERNAL pMem, s
     switch (pMemNetBSD->Core.enmType)
     {
         case RTR0MEMOBJTYPE_LOCK:
-        {
-            if (    pMemNetBSD->Core.u.Lock.R0Process != NIL_RTR0PROCESS
-                &&  pMemNetBSD->Core.u.Lock.R0Process != (RTR0PROCESS)curproc)
-            {
-                /* later */
-                return NIL_RTHCPHYS;
-            }
-
-            vm_offset_t pb = (vm_offset_t)pMemNetBSD->Core.pv + ptoa(iPage);
-
-            struct proc    *pProc     = (struct proc *)pMemNetBSD->Core.u.Lock.R0Process;
-            struct vm_map  *pProcMap  = &pProc->p_vmspace->vm_map;
-            pmap_t pPhysicalMap       = vm_map_pmap(pProcMap);
-
-            return pmap_extract(pPhysicalMap, pb);
-        }
-
         case RTR0MEMOBJTYPE_MAPPING:
-        {
-            vm_offset_t pb = (vm_offset_t)pMemNetBSD->Core.pv + ptoa(iPage);
-
-            if (pMemNetBSD->Core.u.Mapping.R0Process != NIL_RTR0PROCESS)
-            {
-                struct proc    *pProc     = (struct proc *)pMemNetBSD->Core.u.Mapping.R0Process;
-                struct vm_map  *pProcMap  = &pProc->p_vmspace->vm_map;
-                pmap_t pPhysicalMap       = vm_map_pmap(pProcMap);
-
-                return pmap_extract(pPhysicalMap, pb);
-            }
-            return vtophys(pb);
-        }
-
         case RTR0MEMOBJTYPE_PAGE:
-        case RTR0MEMOBJTYPE_LOW:
-        case RTR0MEMOBJTYPE_PHYS_NC:
         {
-            RTHCPHYS addr;
-            VM_OBJECT_LOCK(pMemNetBSD->pObject);
-            addr = VM_PAGE_TO_PHYS(vm_page_lookup(pMemNetBSD->pObject, iPage));
-            VM_OBJECT_UNLOCK(pMemNetBSD->pObject);
             return addr;
         }
 
+        case RTR0MEMOBJTYPE_LOW:
+        case RTR0MEMOBJTYPE_PHYS_NC:
         case RTR0MEMOBJTYPE_PHYS:
             return pMemNetBSD->Core.u.Cont.Phys + ptoa(iPage);
 
@@ -779,4 +426,3 @@ DECLHIDDEN(RTHCPHYS) rtR0MemObjNativeGetPagePhysAddr(PRTR0MEMOBJINTERNAL pMem, s
             return NIL_RTHCPHYS;
     }
 }
-

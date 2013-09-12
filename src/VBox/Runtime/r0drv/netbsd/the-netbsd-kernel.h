@@ -54,6 +54,7 @@
 #include <sys/cpu.h>
 #include <sys/vmmeter.h>        /* cnt */
 #include <sys/resourcevar.h>
+#include <uvm/uvm.h>
 #include <machine/cpu.h>
 
 /**

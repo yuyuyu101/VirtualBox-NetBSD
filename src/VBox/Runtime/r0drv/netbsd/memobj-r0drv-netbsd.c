@@ -34,6 +34,7 @@ typedef struct RTR0MEMOBJNETBSD
 
 MALLOC_DEFINE(M_IPRTMOBJ, "iprtmobj", "IPRT - R0MemObj");
 
+typedef struct vm_map* vm_map_t;
 
 /**
  * Gets the virtual memory map the specified object is mapped into.
@@ -41,7 +42,7 @@ MALLOC_DEFINE(M_IPRTMOBJ, "iprtmobj", "IPRT - R0MemObj");
  * @returns VM map handle on success, NULL if no map.
  * @param   pMem                The memory object.
  */
-static struct vm_map rtR0MemObjNetBSDGetMap(PRTR0MEMOBJINTERNAL pMem)
+static vm_map_t rtR0MemObjNetBSDGetMap(PRTR0MEMOBJINTERNAL pMem)
 {
     switch (pMem->enmType)
     {
@@ -93,7 +94,7 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
 
         case RTR0MEMOBJTYPE_LOCK:
         {
-            struct vm_map pMap = kernel_map;
+            vm_map_t pMap = kernel_map;
 
             if (pMemNetBSD->Core.u.Lock.R0Process != NIL_RTR0PROCESS)
                 pMap = &((struct proc *)pMemNetBSD->Core.u.Lock.R0Process)->p_vmspace->vm_map;
@@ -108,7 +109,7 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
 
         case RTR0MEMOBJTYPE_RES_VIRT:
         {
-            struct vm_map pMap = kernel_map;
+            vm_map_t pMap = kernel_map;
             if (pMemNetBSD->Core.u.ResVirt.R0Process != NIL_RTR0PROCESS)
                 pMap = &((struct proc *)pMemNetBSD->Core.u.ResVirt.R0Process)->p_vmspace->vm_map;
             rc = vm_map_remove(pMap,
@@ -120,7 +121,7 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
 
         case RTR0MEMOBJTYPE_MAPPING:
         {
-            struct vm_map pMap = kernel_map;
+            vm_map_t pMap = kernel_map;
 
             if (pMemNetBSD->Core.u.Mapping.R0Process != NIL_RTR0PROCESS)
                 pMap = &((struct proc *)pMemNetBSD->Core.u.Mapping.R0Process)->p_vmspace->vm_map;
@@ -378,7 +379,7 @@ DECLHIDDEN(int) rtR0MemObjNativeProtect(PRTR0MEMOBJINTERNAL pMem, size_t offSub,
 {
     vm_prot_t          ProtectionFlags = 0;
     vm_offset_t        AddrStart       = (uintptr_t)pMem->pv + offSub;
-    struct vm_map           pVmMap          = rtR0MemObjNetBSDGetMap(pMem);
+    vm_map_t           pVmMap          = rtR0MemObjNetBSDGetMap(pMem);
 
     if (!pVmMap)
         return VERR_NOT_SUPPORTED;

@@ -35,6 +35,14 @@
 #include <iprt/string.h>
 #include <iprt/time.h>
 
+static syncobj_t vbox_syncobj = {
+        SOBJ_SLEEPQ_FIFO,
+        sleepq_unsleep,
+        sleepq_changepri,
+        sleepq_lendpri,
+        syncobj_noowner,
+};
+
 /**
  * Kernel mode Linux wait state structure.
  */
@@ -55,7 +63,8 @@ typedef struct RTR0SEMBSDSLEEP
     /** flag whether the wait is interruptible or not. */
     bool            fInterruptible;
     /** Opaque wait channel id. */
-    void            *pvWaitChan;
+    kmutex_t        *sc_lock;
+    sleepq_t        sleepq;
 } RTR0SEMBSDSLEEP;
 /** Pointer to a NetBSD wait state. */
 typedef RTR0SEMBSDSLEEP *PRTR0SEMBSDSLEEP;
@@ -167,6 +176,8 @@ DECLINLINE(int) rtR0SemBsdWaitInit(PRTR0SEMBSDSLEEP pWait, uint32_t fFlags, uint
                             ? true : false;
     pWait->pvWaitChan     = pvWaitChan;
     pWait->fInterrupted   = false;
+    pWait->sc_lock = mutex_obj_alloc(MUTEX_DEFAULT, IPL_SCHED);
+    sleepq_init(&pWait->sleepq);
 
     return VINF_SUCCESS;
 }
@@ -182,7 +193,7 @@ DECLINLINE(int) rtR0SemBsdWaitInit(PRTR0SEMBSDSLEEP pWait, uint32_t fFlags, uint
 DECLINLINE(void) rtR0SemBsdWaitPrepare(PRTR0SEMBSDSLEEP pWait)
 {
     /* Lock the queues. */
-    sleepq_lock(pWait->pvWaitChan);
+    sleepq_enter(&pWait->sleepq, pWait, pWait->lock);
 }
 
 /**
@@ -195,62 +206,9 @@ DECLINLINE(void) rtR0SemBsdWaitDoIt(PRTR0SEMBSDSLEEP pWait)
     int rcBsd;
     int fSleepqFlags = SLEEPQ_CONDVAR;
 
-    if (pWait->fInterruptible)
-        fSleepqFlags |= SLEEPQ_INTERRUPTIBLE;
+    sleepq_enqueue(&pWait->sleepq, pWait, "VBoxIS", &vbox_syncobj);
 
-    sleepq_add(pWait->pvWaitChan, NULL, "VBoxIS", fSleepqFlags, 0);
-
-    if (!pWait->fIndefinite)
-    {
-        sleepq_set_timeout(pWait->pvWaitChan, pWait->iTimeout);
-
-        if (pWait->fInterruptible)
-            rcBsd = SLEEPQ_TIMEDWAIT_SIG(pWait->pvWaitChan);
-        else
-            rcBsd = SLEEPQ_TIMEDWAIT(pWait->pvWaitChan);
-    }
-    else
-    {
-        if (pWait->fInterruptible)
-            rcBsd = SLEEPQ_WAIT_SIG(pWait->pvWaitChan);
-        else
-        {
-            rcBsd = 0;
-            SLEEPQ_WAIT(pWait->pvWaitChan);
-        }
-    }
-
-    switch (rcBsd)
-    {
-        case 0:
-            break;
-        case ERESTART:
-        {
-            if (!pWait->fIndefinite)
-            {
-                /* Recalc timeout. */
-                uint64_t u64Now = RTTimeSystemNanoTS();
-                if (u64Now >= pWait->uNsAbsTimeout)
-                    pWait->fTimedOut = true;
-                else
-                {
-                    u64Now = pWait->uNsAbsTimeout - u64Now;
-                    rtR0SemBsdWaitUpdateTimeout(pWait, u64Now);
-                }
-            }
-            break;
-        }
-        case EWOULDBLOCK:
-            pWait->fTimedOut = true;
-            break;
-        case EINTR:
-            Assert(pWait->fInterruptible);
-            pWait->fInterrupted = true;
-            break;
-        default:
-            AssertMsgFailed(("sleepq_* -> %d\n", rcBsd));
-            break;
-    }
+    sleepq_block(pWait->iTimeout, true);
 }
 
 
@@ -286,7 +244,6 @@ DECLINLINE(bool) rtR0SemBsdWaitHasTimedOut(PRTR0SEMBSDSLEEP pWait)
  */
 DECLINLINE(void) rtR0SemBsdWaitDelete(PRTR0SEMBSDSLEEP pWait)
 {
-    sleepq_release(pWait->pvWaitChan);
 }
 
 
@@ -297,11 +254,6 @@ DECLINLINE(void) rtR0SemBsdWaitDelete(PRTR0SEMBSDSLEEP pWait)
  */
 DECLINLINE(void) rtR0SemBsdSignal(void *pvWaitChan)
 {
-    sleepq_lock(pvWaitChan);
-    int fWakeupSwapProc = sleepq_signal(pvWaitChan, SLEEPQ_CONDVAR, 0, 0);
-    sleepq_release(pvWaitChan);
-    if (fWakeupSwapProc)
-        kick_proc0();
 }
 
 /**
@@ -311,8 +263,6 @@ DECLINLINE(void) rtR0SemBsdSignal(void *pvWaitChan)
  */
 DECLINLINE(void) rtR0SemBsdBroadcast(void *pvWaitChan)
 {
-    sleepq_lock(pvWaitChan);
-    sleepq_broadcast(pvWaitChan, SLEEPQ_CONDVAR, 0, 0);
 }
 
 /**

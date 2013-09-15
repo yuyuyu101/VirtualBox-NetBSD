@@ -98,7 +98,7 @@ DECLHIDDEN(int) rtR0MemObjNativeFree(RTR0MEMOBJ pMem)
         case RTR0MEMOBJTYPE_PHYS:
         case RTR0MEMOBJTYPE_PHYS_NC:
         {
-            
+            uvm_pglistfree(pMem->pglist);
             break;
         }
 
